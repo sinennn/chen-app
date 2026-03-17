@@ -1,35 +1,99 @@
-import { Tabs } from 'expo-router';
-import React from 'react';
+import { Redirect, Tabs } from 'expo-router';
+import { useEffect, useRef } from 'react';
+
+const { Animated } = require('react-native');
 
 import { HapticTab } from '@/components/haptic-tab';
-import { IconSymbol } from '@/components/ui/icon-symbol';
+import { IconSymbol, IconSymbolName } from '@/components/ui/icon-symbol';
 import { Colors } from '@/constants/theme';
-import { useColorScheme } from '@/hooks/use-color-scheme';
+import { useAuth } from '@/contexts/AuthContext';
 
-export default function TabLayout() {
-  const colorScheme = useColorScheme();
+function BouncyIcon({
+  name,
+  color,
+  focused,
+}: {
+  name: IconSymbolName;
+  color: string;
+  focused: boolean;
+}) {
+  const scale = useRef(new Animated.Value(1)).current;
+
+  useEffect(() => {
+    Animated.spring(scale, {
+      toValue: focused ? 1.15 : 1,
+      friction: 5,
+      tension: 150,
+      useNativeDriver: true,
+    }).start();
+  }, [focused, scale]);
+
+  return (
+    <Animated.View style={{ transform: [{ scale }] }}>
+      <IconSymbol size={28} name={name} color={color} />
+    </Animated.View>
+  );
+}
+
+export default function TabsLayout() {
+  const { user, loading } = useAuth();
+
+  // If not authenticated, redirect to auth
+  if (!loading && !user) {
+    return <Redirect href="/(auth)/welcome" />;
+  }
 
   return (
     <Tabs
       screenOptions={{
-        tabBarActiveTintColor: Colors[colorScheme ?? 'light'].tint,
         headerShown: false,
+        tabBarShowLabel: false,
+        tabBarActiveTintColor: Colors.orange,
+        tabBarInactiveTintColor: Colors.textMuted,
         tabBarButton: HapticTab,
-      }}>
+        tabBarStyle: {
+          backgroundColor: '#000106ff',
+          borderTopColor: Colors.border,
+        },
+      }}
+    >
       <Tabs.Screen
         name="index"
         options={{
-          title: 'Home',
-          tabBarIcon: ({ color }) => <IconSymbol size={28} name="house.fill" color={color} />,
+          title: 'Feed',
+          tabBarIcon: ({ color, focused }) => (
+            <BouncyIcon name="house.fill" color={color as string} focused={focused} />
+          ),
         }}
       />
       <Tabs.Screen
-        name="explore"
+        name="chen"
         options={{
-          title: 'Explore',
-          tabBarIcon: ({ color }) => <IconSymbol size={28} name="paperplane.fill" color={color} />,
+          title: 'Chen',
+          tabBarIcon: ({ color, focused }) => (
+            <BouncyIcon name="flame.fill" color={color as string} focused={focused} />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="friends"
+        options={{
+          title: 'Friends',
+          tabBarIcon: ({ color, focused }) => (
+            <BouncyIcon name="person.2.fill" color={color as string} focused={focused} />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="profile"
+        options={{
+          title: 'Profile',
+          tabBarIcon: ({ color, focused }) => (
+            <BouncyIcon name="person.circle.fill" color={color as string} focused={focused} />
+          ),
         }}
       />
     </Tabs>
   );
 }
+
