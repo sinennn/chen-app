@@ -1,6 +1,7 @@
-
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { Colors } from '@/constants/theme';
+import { useAuth } from '@/contexts/AuthContext';
+import { api } from '@/lib/api';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useEffect, useRef, useState } from 'react';
 import {
@@ -35,135 +36,197 @@ type ChatMessage = {
   timestamp: Date;
 };
 
-const INITIAL_MESSAGES: ChatMessage[] = [
-  {
-    id: '1',
-    role: 'chen',
-    content: "Hey there! I'm Chen, your music companion. I've been listening to what you play and I'm already getting a feel for your vibe.",
-    timestamp: new Date(),
-  },
-  {
-    id: '2',
-    role: 'chen',
-    content: "You seem to have great taste in late-night music. Want to explore some new sounds together?",
-    timestamp: new Date(),
-  },
-];
+// ── Chen Avatar — 3D coin-flip ring ──────────────────────────────────────────
 
-// Chen's glowing ring avatar component
 function ChenAvatar({ isThinking = false }: { isThinking?: boolean }) {
-  const rotateAnim = useRef(new Animated.Value(0)).current;
+  // Outer slow orbit (Y-axis coin flip simulation via scaleX)
+  const flipAnim = useRef(new Animated.Value(0)).current;
+  // Inner fast spin when thinking
+  const spinAnim = useRef(new Animated.Value(0)).current;
+  // Pulse scale
   const pulseAnim = useRef(new Animated.Value(1)).current;
-  const glowAnim = useRef(new Animated.Value(0.6)).current;
+  // Glow intensity
+  const glowAnim = useRef(new Animated.Value(0.5)).current;
+  // Second ring counter-rotation
+  const counterAnim = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
-    // Faster rotation when thinking
-    const rotationSpeed = isThinking ? 800 : 6000;
+    if (!isThinking) {
+      // Reset animations to resting state when not thinking
+      flipAnim.setValue(0);
+      spinAnim.setValue(0);
+      counterAnim.setValue(0);
+      pulseAnim.setValue(1);
+      glowAnim.setValue(0.5);
+      return;
+    }
 
-    // Reset and restart rotation with new speed
-    rotateAnim.setValue(0);
-    Animated.loop(
-      Animated.timing(rotateAnim, {
+    // Coin-flip: scaleX goes 1 → -1 → 1 simulating 3D Y-axis rotation
+    const flipLoop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(flipAnim, {
+          toValue: 1,
+          duration: 500,
+          useNativeDriver: true,
+        }),
+        Animated.timing(flipAnim, {
+          toValue: 0,
+          duration: 500,
+          useNativeDriver: true,
+        }),
+      ])
+    );
+    flipLoop.start();
+
+    // Tilt spin (Z-axis) — always rotating
+    const spinLoop = Animated.loop(
+      Animated.timing(spinAnim, {
         toValue: 1,
-        duration: rotationSpeed,
+        duration: 900,
         useNativeDriver: true,
       })
-    ).start();
+    );
+    spinLoop.start();
 
-    // More intense pulse when thinking
-    const pulseSequence = isThinking 
-      ? [
-          Animated.timing(pulseAnim, { toValue: 1.15, duration: 400, useNativeDriver: true }),
-          Animated.timing(pulseAnim, { toValue: 1, duration: 400, useNativeDriver: true }),
-        ]
-      : [
-          Animated.timing(pulseAnim, { toValue: 1.08, duration: 2000, useNativeDriver: true }),
-          Animated.timing(pulseAnim, { toValue: 1, duration: 2000, useNativeDriver: true }),
-        ];
+    // Counter spin for second ring
+    const counterLoop = Animated.loop(
+      Animated.timing(counterAnim, {
+        toValue: 1,
+        duration: 700,
+        useNativeDriver: true,
+      })
+    );
+    counterLoop.start();
 
-    Animated.loop(Animated.sequence(pulseSequence)).start();
-  }, [isThinking]);
+    // Pulse
+    const pulseLoop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulseAnim, {
+          toValue: 1.18,
+          duration: 350,
+          useNativeDriver: true,
+        }),
+        Animated.timing(pulseAnim, {
+          toValue: 1,
+          duration: 350,
+          useNativeDriver: true,
+        }),
+      ])
+    );
+    pulseLoop.start();
 
-  useEffect(() => {
-    // Brighter glow when thinking
+    // Glow
     Animated.timing(glowAnim, {
-      toValue: isThinking ? 1.2 : 0.6,
-      duration: 300,
+      toValue: 1.0,
+      duration: 400,
       useNativeDriver: false,
     }).start();
+
+    return () => {
+      flipLoop.stop();
+      spinLoop.stop();
+      counterLoop.stop();
+      pulseLoop.stop();
+    };
   }, [isThinking]);
 
-  const rotation = rotateAnim.interpolate({
+  const scaleX = flipAnim.interpolate({
+    inputRange: [0, 0.25, 0.5, 0.75, 1],
+    outputRange: [1, 0.15, -1, -0.15, 1],
+  });
+
+  const rotation = spinAnim.interpolate({
     inputRange: [0, 1],
     outputRange: ['0deg', '360deg'],
   });
 
+  const counterRotation = counterAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: ['360deg', '0deg'],
+  });
+
+  // Color shift: orange → lighter when thinking
+  const ringColor = isThinking ? '#FF9A3C' : Colors.orange;
+
   return (
-    <View style={{ alignItems: 'center', marginVertical: 32 }}>
+    <View style={{ alignItems: 'center', justifyContent: 'center', height: 120 }}>
       
-      {/* glow layer */}
+      {/* Outer ring — coin flip + Z spin */}
       <Animated.View
         style={{
           position: 'absolute',
-          width: 100,
-          height: 100,
-          borderRadius: 50,
-          shadowColor: Colors.orange,
-          shadowOffset: { width: 0, height: 0 },
-          shadowOpacity: glowAnim,
-          shadowRadius: 35,
-          elevation: 20,
+          width: 78,
+          height: 78,
+          borderRadius: 39,
+          borderWidth: 2.5,
+          borderColor: ringColor,
+          transform: [{ rotate: rotation }, { scaleX }, { scale: pulseAnim }],
         }}
       />
 
-      {/* rotating ring */}
+      {/* Inner ring — counter rotation, different tilt */}
       <Animated.View
         style={{
-          width: 80,
-          height: 80,
-          borderRadius: 40,
-          borderWidth: 4,
-          borderColor: Colors.orange,
-          transform: [
-            { rotate: rotation },
-            { scale: pulseAnim }
-          ],
+          position: 'absolute',
+          width: 56,
+          height: 56,
+          borderRadius: 28,
+          borderWidth: 1.5,
+          borderColor: `${ringColor}88`,
+          transform: [{ rotate: counterRotation }, { scaleX: scaleX }],
+        }}
+      />
+
+      {/* Core dot */}
+      <Animated.View
+        style={{
+          width: 10,
+          height: 10,
+          borderRadius: 5,
+          backgroundColor: ringColor,
+          opacity: pulseAnim,
+          shadowColor: ringColor,
+          shadowOffset: { width: 0, height: 0 },
+          shadowOpacity: 1,
+          shadowRadius: 6,
         }}
       />
     </View>
   );
 }
 
+// ── Typing indicator ──────────────────────────────────────────────────────────
 
 function TypingIndicator() {
-  const dot1 = useRef(new Animated.Value(0)).current;
-  const dot2 = useRef(new Animated.Value(0)).current;
-  const dot3 = useRef(new Animated.Value(0)).current;
+  const dots = [
+    useRef(new Animated.Value(0)).current,
+    useRef(new Animated.Value(0)).current,
+    useRef(new Animated.Value(0)).current,
+  ];
 
   useEffect(() => {
-    const animateDots = () => {
+    const animate = () => {
       Animated.sequence([
-        Animated.timing(dot1, { toValue: 1, duration: 300, useNativeDriver: true }),
-        Animated.timing(dot2, { toValue: 1, duration: 300, useNativeDriver: true }),
-        Animated.timing(dot3, { toValue: 1, duration: 300, useNativeDriver: true }),
-        Animated.timing(dot1, { toValue: 0, duration: 300, useNativeDriver: true }),
-        Animated.timing(dot2, { toValue: 0, duration: 300, useNativeDriver: true }),
-        Animated.timing(dot3, { toValue: 0, duration: 300, useNativeDriver: true }),
-      ]).start(() => animateDots());
+        Animated.timing(dots[0], { toValue: 1, duration: 280, useNativeDriver: true }),
+        Animated.timing(dots[1], { toValue: 1, duration: 280, useNativeDriver: true }),
+        Animated.timing(dots[2], { toValue: 1, duration: 280, useNativeDriver: true }),
+        Animated.timing(dots[0], { toValue: 0.2, duration: 280, useNativeDriver: true }),
+        Animated.timing(dots[1], { toValue: 0.2, duration: 280, useNativeDriver: true }),
+        Animated.timing(dots[2], { toValue: 0.2, duration: 280, useNativeDriver: true }),
+      ]).start(() => animate());
     };
-    animateDots();
-  }, [dot1, dot2, dot3]);
+    animate();
+  }, []);
 
   return (
-    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 16, paddingVertical: 12 }}>
-      <Text style={{ color: 'rgba(255, 255, 255, 0.7)', marginRight: 8 }}>Chen is thinking</Text>
-      {[dot1, dot2, dot3].map((dot, index) => (
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 18, paddingVertical: 14 }}>
+      {dots.map((dot, i) => (
         <Animated.View
-          key={index}
+          key={i}
           style={{
-            width: 6,
-            height: 6,
-            borderRadius: 3,
+            width: 7,
+            height: 7,
+            borderRadius: 3.5,
             backgroundColor: Colors.orange,
             opacity: dot,
           }}
@@ -173,25 +236,18 @@ function TypingIndicator() {
   );
 }
 
-// Chat bubble component
+// ── Chat bubble ───────────────────────────────────────────────────────────────
+
 function ChatBubble({ message, isUser }: { message: ChatMessage; isUser: boolean }) {
   const fadeAnim = useRef(new Animated.Value(0)).current;
-  const slideAnim = useRef(new Animated.Value(20)).current;
+  const slideAnim = useRef(new Animated.Value(16)).current;
 
   useEffect(() => {
     Animated.parallel([
-      Animated.timing(fadeAnim, {
-        toValue: 1,
-        duration: 400,
-        useNativeDriver: true,
-      }),
-      Animated.timing(slideAnim, {
-        toValue: 0,
-        duration: 400,
-        useNativeDriver: true,
-      }),
+      Animated.timing(fadeAnim, { toValue: 1, duration: 350, useNativeDriver: true }),
+      Animated.timing(slideAnim, { toValue: 0, duration: 350, useNativeDriver: true }),
     ]).start();
-  }, [fadeAnim, slideAnim]);
+  }, []);
 
   return (
     <Animated.View
@@ -200,32 +256,33 @@ function ChatBubble({ message, isUser }: { message: ChatMessage; isUser: boolean
         transform: [{ translateY: slideAnim }],
         alignSelf: isUser ? 'flex-end' : 'flex-start',
         maxWidth: '80%',
-        marginBottom: 16,
+        marginBottom: 14,
       }}
     >
       <View
         style={{
-          backgroundColor: isUser 
-            ? 'rgba(255, 147, 51, 0.15)'  // Orange tint for user messages
-            : 'rgba(255, 255, 255, 0.08)', // Subtle white for Chen messages
-          borderRadius: 24,
-          paddingHorizontal: 18,
-          paddingVertical: 14,
+          backgroundColor: isUser
+            ? 'rgba(232, 100, 10, 0.18)'
+            : 'rgba(255,255,255,0.07)',
+          borderRadius: 22,
+          paddingHorizontal: 16,
+          paddingVertical: 12,
           borderWidth: 1,
-          borderColor: isUser 
-            ? 'rgba(255, 147, 51, 0.25)'  // Orange border for user
-            : 'rgba(255, 255, 255, 0.12)', // White border for Chen
-          shadowColor: isUser ? Colors.orange : '#000',
-          shadowOffset: { width: 0, height: 4 },
-          shadowOpacity: isUser ? 0.15 : 0.2,
-          shadowRadius: 8,
-          elevation: 4,
+          borderColor: isUser
+            ? 'rgba(232, 100, 10, 0.3)'
+            : 'rgba(255,255,255,0.1)',
+          ...(isUser ? {
+            shadowColor: Colors.orange,
+            shadowOffset: { width: 0, height: 3 },
+            shadowOpacity: 0.2,
+            shadowRadius: 8,
+          } : {}),
         }}
       >
-        <Text 
-          style={{ 
-            color: isUser ? Colors.textPrimary : 'rgba(255, 255, 255, 0.95)',
-            fontSize: 16,
+        <Text
+          style={{
+            color: Colors.textPrimary,
+            fontSize: 15,
             lineHeight: 22,
           }}
         >
@@ -236,61 +293,81 @@ function ChatBubble({ message, isUser }: { message: ChatMessage; isUser: boolean
   );
 }
 
+// ── Screen ────────────────────────────────────────────────────────────────────
+
 export default function ChenScreen() {
+  const { profile } = useAuth();
+  const name = profile?.username || 'you';
+
+  const INITIAL_MESSAGES: ChatMessage[] = [
+    {
+      id: '1',
+      role: 'chen',
+      content: `hey ${name}. i've been listening with you. what's on your mind?`,
+      timestamp: new Date(),
+    },
+  ];
+
   const [messages, setMessages] = useState<ChatMessage[]>(INITIAL_MESSAGES);
   const [input, setInput] = useState('');
   const [isThinking, setIsThinking] = useState(false);
   const scrollViewRef = useRef<ScrollView>(null);
 
   const handleSend = async () => {
-    if (!input.trim()) return;
-    
+    if (!input.trim() || isThinking) return;
+
     const userMsg: ChatMessage = {
       id: String(Date.now()),
       role: 'user',
       content: input.trim(),
       timestamp: new Date(),
     };
-    
-    setMessages((prev) => [...prev, userMsg]);
+
+    setMessages(prev => [...prev, userMsg]);
     setInput('');
     setIsThinking(true);
 
-    // Simulate Chen's response
-    setTimeout(() => {
-      const responses = [
-        "That's such a vibe! I can tell you're in one of those moods where the music just hits different.",
-        "You know what? Based on what you've been playing lately, I think you'd love some ambient electronic stuff.",
-        "I've noticed you play that song when you're feeling contemplative. Want me to find something similar?",
-        "Your late-night playlist is getting really good. You're developing quite the aesthetic!",
-        "Interesting choice! That artist has some deeper cuts that might surprise you.",
-      ];
-      
+    try {
+      const history = messages.map(m => ({
+        role: m.role === 'chen' ? 'assistant' : 'user',
+        content: m.content,
+      }));
+
+      const result = await api.chen.chat(input.trim(), history);
+
       const chenMsg: ChatMessage = {
         id: String(Date.now() + 1),
         role: 'chen',
-        content: responses[Math.floor(Math.random() * responses.length)],
+        content: result.reply,
         timestamp: new Date(),
       };
-      
-      setMessages((prev) => [...prev, chenMsg]);
+
+      setMessages(prev => [...prev, chenMsg]);
+    } catch (error) {
+      console.error('Chen error:', error);
+      setMessages(prev => [...prev, {
+        id: String(Date.now() + 1),
+        role: 'chen',
+        content: "sorry, lost my train of thought. try again?",
+        timestamp: new Date(),
+      }]);
+    } finally {
       setIsThinking(false);
-    }, 2000);
+    }
   };
 
   useEffect(() => {
-    scrollViewRef.current?.scrollToEnd({ animated: true });
-  }, [messages]);
+    setTimeout(() => scrollViewRef.current?.scrollToEnd({ animated: true }), 100);
+  }, [messages, isThinking]);
 
   return (
     <View style={{ flex: 1 }}>
-      {/* Background */}
       <ImageBackground
         source={{ uri: 'https://images.unsplash.com/photo-1493225457124-a3eb161ffa5f?w=800&h=1200&fit=crop' }}
         style={{ flex: 1 }}
         blurRadius={25}
       >
-      {/* @ts-expect-error */}
+        {/* @ts-ignore */}
         <LinearGradient
           colors={['rgba(0, 1, 6, 0.85)', 'rgba(0, 1, 6, 0.9)', 'rgba(0, 1, 6, 0.95)']}
           style={{ flex: 1 }}
@@ -298,78 +375,83 @@ export default function ChenScreen() {
           <KeyboardAvoidingView
             style={{ flex: 1 }}
             behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+            keyboardVerticalOffset={0}
           >
-            {/* Header */}
-            <View
-              style={{
-                flexDirection: 'row',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                paddingHorizontal: 20,
-                paddingTop: 60,
-                paddingBottom: 20,
-              }}
-            >
-              <Pressable
+
+            {/* ── Sticky header (avatar + title float above chat) ── */}
+            <View style={{ position: 'relative', zIndex: 10 }}>
+              <View
                 style={{
-                  width: 40,
-                  height: 40,
-                  borderRadius: 20,
-                  backgroundColor: 'rgba(255, 255, 255, 0.1)',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  borderWidth: 1,
-                  borderColor: 'rgba(255, 255, 255, 0.08)',
+                  paddingTop: 56,
+                  paddingBottom: 12,
+                  paddingHorizontal: 20,
                 }}
               >
-                <IconSymbol name="chevron.left" size={20} color={Colors.textPrimary} />
-              </Pressable>
-              
-              <View style={{ alignItems: 'center' }}>
-                <Text
+                {/* Header row */}
+                <View style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  marginBottom: 4,
+                }}>
+                  <Pressable style={{
+                    width: 38, height: 38, borderRadius: 19,
+                    backgroundColor: 'rgba(255,255,255,0.06)',
+                    alignItems: 'center', justifyContent: 'center',
+                    borderWidth: 1, borderColor: 'rgba(232,100,10,0.12)',
+                  }}>
+                    <IconSymbol name="chevron.left" size={18} color={Colors.textSecondary} />
+                  </Pressable>
+
+                  <View style={{ alignItems: 'center' }}>
+                    <Text style={{ fontSize: 17, fontWeight: '700', color: Colors.textPrimary, letterSpacing: 0.3 }}>
+                      Chen
+                    </Text>
+                    <Text style={{ fontSize: 12, color: Colors.textMuted, marginTop: 1 }}>
+                      {isThinking ? 'thinking...' : 'your music twin'}
+                    </Text>
+                  </View>
+
+                  <Pressable style={{
+                    width: 38, height: 38, borderRadius: 19,
+                    backgroundColor: 'rgba(255,255,255,0.06)',
+                    alignItems: 'center', justifyContent: 'center',
+                    borderWidth: 1, borderColor: 'rgba(232,100,10,0.12)',
+                  }}>
+                    <IconSymbol name="gearshape" size={16} color={Colors.textSecondary} />
+                  </Pressable>
+                </View>
+
+                {/* Avatar — sits inside blur header */}
+                <ChenAvatar isThinking={isThinking} />
+
+                {/* Fade edge at bottom of blur zone */}
+                <View
                   style={{
-                    fontSize: 24,
-                    fontWeight: '700',
-                    color: Colors.textPrimary,
+                    position: 'absolute',
+                    bottom: -20,
+                    left: 0,
+                    right: 0,
+                    height: 20,
                   }}
+                  pointerEvents="none"
                 >
-                  Chen
-                </Text>
-                <Text
-                  style={{
-                    fontSize: 14,
-                    color: 'rgba(255, 255, 255, 0.7)',
-                    marginTop: 2,
-                  }}
-                >
-                  Your music twin
-                </Text>
+                  <LinearGradient
+                    colors={['transparent', 'rgba(13,11,9,0.6)']}
+                  />
+                </View>
               </View>
-              
-              <Pressable
-                style={{
-                  width: 40,
-                  height: 40,
-                  borderRadius: 20,
-                  backgroundColor: 'rgba(255, 255, 255, 0.1)',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  borderWidth: 1,
-                  borderColor: 'rgba(255, 255, 255, 0.08)',
-                }}
-              >
-                <IconSymbol name="gearshape" size={18} color={Colors.textPrimary} />
-              </Pressable>
             </View>
 
-            {/* Chen Avatar */}
-            <ChenAvatar isThinking={isThinking} />
-
-            {/* Chat Messages */}
+            {/* ── Chat messages ── */}
             <ScrollView
               ref={scrollViewRef}
               style={{ flex: 1 }}
-              contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 20 }}
+              contentContainerStyle={{
+                paddingHorizontal: 18,
+                paddingTop: 24,
+                paddingBottom: 16,
+              }}
               showsVerticalScrollIndicator={false}
             >
               {messages.map((message) => (
@@ -379,88 +461,89 @@ export default function ChenScreen() {
                   isUser={message.role === 'user'}
                 />
               ))}
-              
+
               {isThinking && (
-                <View style={{ alignSelf: 'flex-start', marginBottom: 16 }}>
-                  <View
-                    style={{
-                      backgroundColor: 'rgba(255, 255, 255, 0.08)',
-                      borderRadius: 24,
-                      borderWidth: 1,
-                      borderColor: 'rgba(255, 255, 255, 0.08)',
-                    }}
-                  >
+                <Animated.View style={{ alignSelf: 'flex-start', marginBottom: 14 }}>
+                  <View style={{
+                    backgroundColor: 'rgba(255,255,255,0.07)',
+                    borderRadius: 22,
+                    borderWidth: 1,
+                    borderColor: 'rgba(255,255,255,0.1)',
+                  }}>
                     <TypingIndicator />
                   </View>
-                </View>
+                </Animated.View>
               )}
             </ScrollView>
 
-            {/* Input Area */}
-            <View
-              style={{
-                paddingHorizontal: 20,
-                paddingBottom: 34,
-                paddingTop: 16,
-              }}
-            >
-              <View
-                style={{
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  backgroundColor: 'rgba(255, 255, 255, 0.1)',
-                  borderRadius: 28,
-                  paddingHorizontal: 20,
-                  paddingVertical: 12,
-                  borderWidth: 1,
-                  borderColor: 'rgba(255, 255, 255, 0.08)',
-                  shadowColor: '#000',
-                  shadowOffset: { width: 0, height: 4 },
-                  shadowOpacity: 0.2,
-                  shadowRadius: 12,
-                  elevation: 8,
-                }}
-              >
+            {/* ── Input bar ── */}
+            <View style={{
+              paddingHorizontal: 16,
+              paddingBottom: Platform.OS === 'ios' ? 34 : 20,
+              paddingTop: 12,
+              borderTopWidth: 1,
+              borderTopColor: 'rgba(232,100,10,0.08)',
+            }}>
+              <View style={{
+                flexDirection: 'row',
+                alignItems: 'flex-end',
+                backgroundColor: 'rgba(255,255,255,0.06)',
+                borderRadius: 26,
+                paddingHorizontal: 18,
+                paddingVertical: 10,
+                borderWidth: 1,
+                borderColor: input.trim()
+                  ? 'rgba(232,100,10,0.25)'
+                  : 'rgba(255,255,255,0.08)',
+              }}>
                 <TextInput
                   value={input}
                   onChangeText={setInput}
-                  placeholder="Ask Chen about your music..."
-                  placeholderTextColor="rgba(255, 255, 255, 0.5)"
+                  placeholder="ask chen anything..."
+                  placeholderTextColor={Colors.textMuted}
                   style={{
                     flex: 1,
                     color: Colors.textPrimary,
-                    fontSize: 16,
-                    paddingVertical: 4,
+                    fontSize: 15,
+                    paddingVertical: 8,
+                    maxHeight: 100,
                   }}
                   multiline
                   maxLength={500}
+                  onSubmitEditing={handleSend}
                 />
-                
+
                 <Pressable
                   onPress={handleSend}
                   disabled={!input.trim() || isThinking}
                   style={{
-                    width: 36,
-                    height: 36,
-                    borderRadius: 18,
-                    backgroundColor: input.trim() ? Colors.orange : 'rgba(255, 255, 255, 0.2)',
+                    width: 34,
+                    height: 34,
+                    borderRadius: 17,
+                    backgroundColor: input.trim() && !isThinking
+                      ? Colors.orange
+                      : 'rgba(255,255,255,0.1)',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    marginLeft: 12,
+                    marginLeft: 10,
+                    shadowColor: input.trim() ? Colors.orange : 'transparent',
+                    shadowOffset: { width: 0, height: 3 },
+                    shadowOpacity: 0.5,
+                    shadowRadius: 8,
                   }}
                 >
-                  <IconSymbol 
-                    name="arrow.up" 
-                    size={18} 
-                    color={input.trim() ? Colors.white : 'rgba(255, 255, 255, 0.5)'} 
+                  <IconSymbol
+                    name="arrow.up"
+                    size={16}
+                    color={input.trim() && !isThinking ? Colors.white : 'rgba(255,255,255,0.3)'}
                   />
                 </Pressable>
               </View>
             </View>
+
           </KeyboardAvoidingView>
         </LinearGradient>
       </ImageBackground>
     </View>
   );
 }
-

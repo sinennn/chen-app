@@ -1,15 +1,20 @@
+//@ts-nocheck
+import { CommentModal } from '@/components/comment-modal';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { Colors } from '@/constants/theme';
+import { useAuth } from '@/contexts/AuthContext';
+import { ActivityItem, api } from '@/lib/api';
+import { supabase } from '@/lib/supabase';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
 import {
-  ActivityIndicator,
   Animated,
   Dimensions,
   Image,
   ImageBackground,
   Pressable,
+  RefreshControl,
   ScrollView,
   Text,
   View
@@ -17,44 +22,15 @@ import {
 
 const { width: screenWidth } = Dimensions.get('window');
 
-// Mock data for demonstration
-const mockFeedData = [
-  {
-    id: '1',
-    username: 'alex_music',
-    profilePicture: 'https://api.dicebear.com/7.x/avataaars/png?seed=alex&size=40',
-    timestamp: '2m ago',
-    albumArt: 'https://images.unsplash.com/photo-1493225457124-a3eb161ffa5f?w=300&h=300&fit=crop',
-    trackName: 'Blinding Lights',
-    artistName: 'The Weeknd',
-    likes: 24,
-    isPlaying: true
-  },
-  {
-    id: '2',
-    username: 'sarah_beats',
-    profilePicture: 'https://api.dicebear.com/7.x/avataaars/png?seed=sarah&size=40',
-    timestamp: '5m ago',
-    albumArt: 'https://images.unsplash.com/photo-1571974599782-87624638275c?w=300&h=300&fit=crop',
-    trackName: 'Good 4 U',
-    artistName: 'Olivia Rodrigo',
-    likes: 18,
-    isPlaying: false
-  },
-  {
-    id: '3',
-    username: 'mike_vibes',
-    profilePicture: 'https://api.dicebear.com/7.x/avataaars/png?seed=mike&size=40',
-    timestamp: '12m ago',
-    albumArt: 'https://images.unsplash.com/photo-1514320291840-2e0a9bf2a9ae?w=300&h=300&fit=crop',
-    trackName: 'Levitating',
-    artistName: 'Dua Lipa',
-    likes: 31,
-    isPlaying: false
-  }
-];
+function FeedCard({ item, index, onCommentPress }: { item: ActivityItem; index: number; onCommentPress: (item: ActivityItem) => void }) {
+  console.log(`FeedCard ${index} rendering with item:`, {
+    id: item.id,
+    username: item.username,
+    avatar_id: item.avatar_id,
+    track_name: item.track_name,
+    artist_name: item.artist_name
+  });
 
-function FeedCard({ item, index }: { item: any; index: number }) {
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(40)).current;
   const scaleAnim = useRef(new Animated.Value(1)).current;
@@ -63,7 +39,7 @@ function FeedCard({ item, index }: { item: any; index: number }) {
   const lastTap = useRef<number | null>(null);
 
   const [liked, setLiked] = useState(false);
-  const [likeCount, setLikeCount] = useState(item.likes);
+  const [likeCount, setLikeCount] = useState(0);
 
   const contextOptions = [
     "is obsessed with",
@@ -72,8 +48,25 @@ function FeedCard({ item, index }: { item: any; index: number }) {
     "has on repeat",
   ];
 
-  const context =
-    contextOptions[index % contextOptions.length];
+  const context = contextOptions[index % contextOptions.length];
+
+  // Format timestamp as "Xm ago"
+  const formatTimestamp = (timestamp?: string) => {
+    if (!timestamp) return 'now';
+    const now = new Date();
+    const startedAt = new Date(timestamp);
+    const diffMs = now.getTime() - startedAt.getTime();
+    const diffMins = Math.floor(diffMs / (1000 * 60));
+    
+    if (diffMins < 1) return 'now';
+    if (diffMins < 60) return `${diffMins}m ago`;
+    
+    const diffHours = Math.floor(diffMins / 60);
+    if (diffHours < 24) return `${diffHours}h ago`;
+    
+    const diffDays = Math.floor(diffHours / 24);
+    return `${diffDays}d ago`;
+  };
 
   useEffect(() => {
     Animated.parallel([
@@ -142,7 +135,6 @@ function FeedCard({ item, index }: { item: any; index: number }) {
           }}
         >
           {/* TOP ROW */}
-
           <View
             style={{
               flexDirection: "row",
@@ -151,7 +143,9 @@ function FeedCard({ item, index }: { item: any; index: number }) {
             }}
           >
             <Image
-              source={{ uri: item.profilePicture }}
+              source={{ 
+                uri: `https://api.dicebear.com/7.x/adventurer/png?seed=${item.avatar_id}&size=40&backgroundColor=0D0B09`
+              }}
               style={{
                 width: 36,
                 height: 36,
@@ -181,7 +175,7 @@ function FeedCard({ item, index }: { item: any; index: number }) {
               </Text>
             </View>
 
-            {item.isPlaying && (
+            {item.is_playing && (
               <View
                 style={{
                   paddingHorizontal: 8,
@@ -203,12 +197,11 @@ function FeedCard({ item, index }: { item: any; index: number }) {
                 marginLeft: 10,
               }}
             >
-              {item.timestamp}
+              {formatTimestamp(item.played_at || item.started_at)}
             </Text>
           </View>
 
           {/* SONG */}
-
           <View style={{ flexDirection: "row", alignItems: "center" }}>
             <Animated.View
               style={{
@@ -216,7 +209,7 @@ function FeedCard({ item, index }: { item: any; index: number }) {
               }}
             >
               <Image
-                source={{ uri: item.albumArt }}
+                source={{ uri: item.album_art_url }}
                 style={{
                   width: 70,
                   height: 70,
@@ -235,7 +228,7 @@ function FeedCard({ item, index }: { item: any; index: number }) {
                 }}
                 numberOfLines={1}
               >
-                {item.trackName}
+                {item.track_name}
               </Text>
 
               <Text
@@ -246,13 +239,12 @@ function FeedCard({ item, index }: { item: any; index: number }) {
                 }}
                 numberOfLines={1}
               >
-                {item.artistName}
+                {item.artist_name}
               </Text>
             </View>
           </View>
 
           {/* ACTION ROW */}
-
           <View
             style={{
               flexDirection: "row",
@@ -290,15 +282,16 @@ function FeedCard({ item, index }: { item: any; index: number }) {
               </Pressable>
             </View>
 
-            <IconSymbol
-              name="bubble.right"
-              size={20}
-              color="rgba(255,255,255,0.6)"
-            />
+            <Pressable onPress={() => onCommentPress(item)}>
+              <IconSymbol
+                name="bubble.right"
+                size={20}
+                color="rgba(255,255,255,0.6)"
+              />
+            </Pressable>
           </View>
 
           {/* FLOATING HEART */}
-
           <Animated.Text
             style={{
               position: "absolute",
@@ -330,17 +323,359 @@ function FeedCard({ item, index }: { item: any; index: number }) {
   );
 }
 
-export default function FeedScreen() {
-  const router = useRouter();
-  const [loading, setLoading] = useState(true);
+function EmptyStateComponent({ onChenPress }: { onChenPress: () => void }) {
+  const pulse = useRef(new Animated.Value(1)).current;
+  const eqBars = Array.from({ length: 5 }, () => useRef(new Animated.Value(0.4)).current);
 
   useEffect(() => {
-    // Simulate loading
-    setTimeout(() => setLoading(false), 1000);
+    // Glow pulse
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulse, { toValue: 1.12, duration: 1800, useNativeDriver: true }),
+        Animated.timing(pulse, { toValue: 1, duration: 1800, useNativeDriver: true }),
+      ])
+    ).start();
+
+    // EQ bars
+    const delays = [0, 200, 400, 100, 300];
+    eqBars.forEach((bar, i) => {
+      const loop = Animated.loop(
+        Animated.sequence([
+          Animated.delay(delays[i]),
+          Animated.timing(bar, { toValue: 1.3, duration: 500, useNativeDriver: true }),
+          Animated.timing(bar, { toValue: 0.4, duration: 500, useNativeDriver: true }),
+        ])
+      );
+      loop.start();
+    });
+  }, []);
+
+  const eqHeights = [6, 14, 9, 16, 7];
+
+  return (
+    <View style={{
+      alignItems: 'center',
+      paddingHorizontal: 32,
+      paddingVertical: 48,
+      position: 'relative',
+      overflow: 'hidden',
+      paddingTop: 100,
+    }}>
+      {/* Ambient glow */}
+      <Animated.View
+        style={{
+          position: 'absolute',
+          width: 260,
+          height: 260,
+          borderRadius: 130,
+          backgroundColor: 'rgba(232,100,10,0.13)',
+          top: 40,
+          alignSelf: 'center',
+          transform: [{ scale: pulse }],
+        }}
+      />
+
+      {/* Glassmorphism icon */}
+      <View style={{
+        width: 72,
+        height: 72,
+        marginBottom: 22,
+        position: 'relative',
+      }}>
+        <View style={{
+          width: 72,
+          height: 72,
+          borderRadius: 22,
+          backgroundColor: 'rgba(255,255,255,0.06)',
+          borderWidth: 1,
+          borderColor: 'rgba(255,255,255,0.13)',
+          alignItems: 'center',
+          justifyContent: 'center',
+          overflow: 'hidden',
+        }}>
+          {/* Global music icon */}
+          <View style={{
+            width: 36,
+            height: 36,
+            position: 'relative',
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}>
+            <View style={{
+              width: 28,
+              height: 28,
+              borderRadius: 14,
+              borderWidth: 2,
+              borderColor: Colors.orange,
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}>
+              <Text style={{
+                color: Colors.orange,
+                fontSize: 14,
+                fontWeight: '700',
+              }}>
+                ♪
+              </Text>
+            </View>
+          </View>
+        </View>
+
+        {/* Glass inner highlight */}
+        <View style={{
+          position: 'absolute',
+          top: 0,
+          left: 0,
+          right: 0,
+          height: 32,
+          borderRadius: 22,
+          backgroundColor: 'rgba(255,255,255,0.07)',
+        }} />
+      </View>
+
+      {/* EQ bars */}
+      <View style={{
+        flexDirection: 'row',
+        alignItems: 'flex-end',
+        gap: 3,
+        marginBottom: 24,
+        height: 18,
+        opacity: 0.45,
+      }}>
+        {eqBars.map((bar, i) => (
+          <Animated.View
+            key={i}
+            style={{
+              width: 3,
+              height: eqHeights[i],
+              borderRadius: 2,
+              backgroundColor: Colors.orange,
+              transform: [{ scaleY: bar }],
+            }}
+          />
+        ))}
+      </View>
+
+      {/* Title */}
+      <Text style={{
+        fontSize: 24,
+        fontWeight: '800',
+        color: Colors.textPrimary,
+        textAlign: 'center',
+        letterSpacing: -0.5,
+        marginBottom: 10,
+      }}>
+        The world is quiet
+      </Text>
+
+      {/* Subtitle */}
+      <Text style={{
+        fontSize: 14,
+        color: 'rgba(255,255,255,0.5)',
+        textAlign: 'center',
+        lineHeight: 22,
+        marginBottom: 28,
+      }}>
+        No one is listening to music right now…{'\n'}Be the first to share what you're playing!
+      </Text>
+
+      {/* Chen pill */}
+      <Pressable
+        style={{
+          flexDirection: 'row',
+          alignItems: 'center',
+          gap: 10,
+          paddingHorizontal: 18,
+          paddingVertical: 11,
+          borderRadius: 100,
+          backgroundColor: 'rgba(232,100,10,0.10)',
+          borderWidth: 1,
+          borderColor: 'rgba(232,100,10,0.28)',
+          overflow: 'hidden',
+        }}
+        onPress={onChenPress}
+      >
+        <View style={{
+          width: 26,
+          height: 26,
+          borderRadius: 13,
+          backgroundColor: 'rgba(232,100,10,0.30)',
+          borderWidth: 1,
+          borderColor: 'rgba(232,100,10,0.5)',
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}>
+          <Text style={{
+            color: Colors.orange,
+            fontSize: 11,
+            fontWeight: '700',
+          }}>
+            C
+          </Text>
+        </View>
+        <Text style={{
+          color: Colors.orange,
+          fontSize: 13,
+          fontWeight: '600',
+          letterSpacing: 0.1,
+        }}>
+          Ask Chen for something to vibe to 🎧
+        </Text>
+      </Pressable>
+    </View>
+  );
+}
+
+function SkeletonCard({ index }: { index: number }) {
+  const fadeAnim = useRef(new Animated.Value(0.3)).current;
+
+  useEffect(() => {
+    const pulse = () => {
+      Animated.sequence([
+        Animated.timing(fadeAnim, {
+          toValue: 0.7,
+          duration: 1000,
+          useNativeDriver: true,
+        }),
+        Animated.timing(fadeAnim, {
+          toValue: 0.3,
+          duration: 1000,
+          useNativeDriver: true,
+        }),
+      ]).start(() => pulse());
+    };
+    pulse();
   }, []);
 
   return (
-    <View style={{ flex: 1 }}>
+    <Animated.View
+      style={{
+        opacity: fadeAnim,
+        marginBottom: 22,
+      }}
+    >
+      <View
+        style={{
+          backgroundColor: "rgba(255,255,255,0.06)",
+          borderRadius: 26,
+          padding: 18,
+          height: 140,
+        }}
+      />
+    </Animated.View>
+  );
+}
+
+export default function FeedScreen() {
+  const router = useRouter();
+  const { profile: authProfile, refreshProfile } = useAuth();
+  const [profile, setProfile] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [feed, setFeed] = useState<ActivityItem[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [commentModalVisible, setCommentModalVisible] = useState(false);
+  const [selectedActivity, setSelectedActivity] = useState<ActivityItem | null>(null);
+
+  // Update local profile when auth profile changes
+  useEffect(() => {
+    if (authProfile) {
+      setProfile(authProfile);
+    }
+  }, [authProfile]);
+
+  const fetchFeed = async (isRefresh = false) => {
+    try {
+      if (!isRefresh) setLoading(true);
+      setError(null);
+      
+      // Refresh profile to get latest avatar
+      await refreshProfile();
+      
+      const feedData = await api.feed.get();
+      console.log('Feed data received:', feedData);
+      console.log('First item details:', feedData[0] ? {
+        id: feedData[0].id,
+        username: feedData[0].username,
+        avatar_id: feedData[0].avatar_id,
+        track_name: feedData[0].track_name,
+        artist_name: feedData[0].artist_name
+      } : 'No items');
+      
+      setFeed(feedData);
+    } catch (err) {
+      console.error('Error fetching feed:', err);
+      setFeed([]);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  };
+
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    await fetchFeed(true);
+  };
+
+  useEffect(() => {
+    fetchFeed();
+
+    // Subscribe to realtime updates on listening_activity table
+    const channel = supabase
+      .channel('listening_activity_changes')
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'listening_activity',
+        },
+        (payload) => {
+          // Add new activity to the top of the feed with animation
+          const newActivity = payload.new as ActivityItem;
+          setFeed(prevFeed => [newActivity, ...prevFeed.slice(0, 49)]); // Keep max 50 items
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'listening_activity',
+        },
+        (payload) => {
+          // Update existing activity when is_playing status changes
+          const updatedActivity = payload.new as ActivityItem;
+          setFeed(prevFeed => 
+            prevFeed.map(item => 
+              item.id === updatedActivity.id ? { ...item, ...updatedActivity } : item
+            )
+          );
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, []);
+
+  const handleCommentPress = (item: ActivityItem) => {
+    setSelectedActivity(item);
+    setCommentModalVisible(true);
+  };
+
+  const handleCloseCommentModal = () => {
+    setCommentModalVisible(false);
+    setSelectedActivity(null);
+  };
+
+  const renderEmptyState = () => (
+    <EmptyStateComponent onChenPress={() => router.push('/(tabs)/chen')} />
+  );
+
+  return (
+    <View style={{ flex: 1 }} >
       {/* Background */}
       <ImageBackground
         source={{ uri: 'https://images.unsplash.com/photo-1493225457124-a3eb161ffa5f?w=800&h=1200&fit=crop' }}
@@ -362,17 +697,30 @@ export default function FeedScreen() {
               paddingBottom: 20,
             }}
           >
-            <Text
-              style={{
-                fontSize: 28,
-                fontWeight: '700',
-                color: Colors.textPrimary,
-              }}
-            >
-              Feed
-            </Text>
+            <View>
+              <Text
+                style={{
+                  fontSize: 28,
+                  fontWeight: '700',
+                  color: Colors.textPrimary,
+                }}
 
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 16 }}>
+                className="pt-5"
+              >
+                Feed
+              </Text>
+              <Text
+                style={{
+                  fontSize: 13,
+                  color: 'rgba(255,255,255,0.6)',
+                  marginTop: 2,
+                }}
+              >
+                What everyone's listening to
+              </Text>
+            </View>
+
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 16 }} className="pt-5">
               <Pressable
                 style={{
                   width: 40,
@@ -389,7 +737,9 @@ export default function FeedScreen() {
               </Pressable>
 
               <Image
-                source={{ uri: 'https://api.dicebear.com/7.x/avataaars/png?seed=user&size=40' }}
+                source={{ 
+                  uri: `https://api.dicebear.com/7.x/adventurer/png?seed=${profile?.avatar_id || 'default'}&size=40&backgroundColor=0D0B09`
+                }}
                 style={{
                   width: 36,
                   height: 36,
@@ -406,27 +756,40 @@ export default function FeedScreen() {
             style={{ flex: 1 }}
             contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 100 }}
             showsVerticalScrollIndicator={false}
+            refreshControl={
+              <RefreshControl
+                refreshing={refreshing}
+                onRefresh={handleRefresh}
+                tintColor={Colors.orange}
+                colors={[Colors.orange]}
+              />
+            }
           >
             {loading ? (
               [...Array(3)].map((_, i) => (
-                <View
-                  key={i}
-                  style={{
-                    height: 120,
-                    borderRadius: 24,
-                    backgroundColor: "rgba(255,255,255,0.06)",
-                    marginBottom: 20,
-                  }}
-                />
+                <SkeletonCard key={i} index={i} />
               ))
+            ) : feed.length === 0 ? (
+              renderEmptyState()
             ) : (
-              mockFeedData.map((item, index) => (
-                <FeedCard key={item.id} item={item} index={index} />
+              feed.map((item, index) => (
+                <FeedCard key={`${item.id}-${index}`} item={item} index={index} onCommentPress={handleCommentPress} />
               ))
             )}
           </ScrollView>
         </LinearGradient>
       </ImageBackground>
+      
+      {/* Comment Modal */}
+      {selectedActivity && (
+        <CommentModal
+          visible={commentModalVisible}
+          onClose={handleCloseCommentModal}
+          activityId={selectedActivity.id}
+          trackName={selectedActivity.track_name}
+          artistName={selectedActivity.artist_name}
+        />
+      )}
     </View>
   );
 }

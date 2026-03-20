@@ -2,6 +2,7 @@ import { useRouter } from 'expo-router';
 import { useState } from 'react';
 import {
   //@ts-ignore
+  //signup
   Alert,
   //@ts-ignore
   Image,
@@ -22,7 +23,6 @@ import {
 
 import { Colors } from '@/constants/theme';
 import { signInWithApple, signInWithGoogle } from '@/lib/auth';
-import { supabase } from '@/lib/supabase';
 //@ts-ignore
 import { ActivityIndicator } from 'react-native';
 
@@ -50,18 +50,8 @@ export default function SignupScreen() {
           return;
         }
         Alert.alert('Sign Up Error', authResult.error);
-      } else if (authResult.user) {
-        // For signup flow, always go through onboarding
-        // Create user row if it doesn't exist
-        await supabase.from('users').upsert({
-          id: authResult.user.id,
-          email: authResult.user.email,
-          created_at: new Date().toISOString()
-        }, { onConflict: 'id' });
-
-        // Always route to avatar selection for signup
-        router.replace('/(auth)/avatar');
       }
+      // Let AuthContext handle user creation and routing
     } catch (error) {
       Alert.alert('Sign Up Error', 'An unexpected error occurred. Please try again.');
       console.error('Google Sign-up error:', error);
@@ -169,23 +159,18 @@ export default function SignupScreen() {
             {/* Apple Button */}
             <Pressable
               onPress={async () => {
+                if (!agree) {
+                  Alert.alert('Terms Required', 'Please agree to the Terms of Use to continue.');
+                  return;
+                }
+
                 setAppleLoading(true);
                 try {
                   const result = await signInWithApple();
                   if (result.error && result.error !== 'cancelled') {
                     Alert.alert('Sign In Error', result.error);
-                  } else if (result.user) {
-                    // For signup flow, always go through onboarding
-                    // Create user row if it doesn't exist
-                    await supabase.from('users').upsert({
-                      id: result.user.id,
-                      email: result.user.email,
-                      created_at: new Date().toISOString()
-                    }, { onConflict: 'id' });
-
-                    // Always route to avatar selection for signup
-                    router.replace('/(auth)/avatar');
                   }
+                  // Let AuthContext handle user creation and routing
                 } finally {
                   setAppleLoading(false);
                 }

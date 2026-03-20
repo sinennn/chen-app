@@ -4,30 +4,43 @@ import (
 	"chen/pkg/supabase"
 	"encoding/json"
 	"log"
+	"sync"
 	"time"
 )
 
+type UserTrackCache struct {
+	TrackName  string
+	ArtistName string
+	AlbumName  string
+	IsPlaying  bool
+	LastUpdate time.Time
+}
+
+var (
+	userCache  = make(map[string]*UserTrackCache)
+	cacheMutex sync.RWMutex
+)
+
 func StartPoller() {
-	log.Println("Starting Spotify polling service...")
+	log.Println("Starting Spotify real-time polling service...")
 
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
 
-	for {
-		select {
-		case <-ticker.C:
-			pollAllUsers()
-		}
+	for range ticker.C {
+		pollAllUsers()
 	}
 }
 
 func pollAllUsers() {
 	client := supabase.GetClient()
 
-	// Get all users with valid (non-expired) Spotify tokens
+	// FIX: Removed the Gt("expires_at", ...) filter.
+	// Previously, expired tokens were silently excluded — meaning once a token
+	// expired it would never be refreshed and the user would never be polled again.
+	// Now we fetch ALL connections and handle refresh inside pollUserActivity.
 	data, _, err := client.From("spotify_connections").
 		Select("user_id,access_token,refresh_token,expires_at", "", false).
-		Gt("expires_at", time.Now().Format(time.RFC3339)).
 		Execute()
 
 	if err != nil {
@@ -35,7 +48,6 @@ func pollAllUsers() {
 		return
 	}
 
-	// Parse the JSON response
 	var connections []map[string]interface{}
 	if err := json.Unmarshal(data, &connections); err != nil {
 		log.Printf("Error parsing Spotify connections: %v", err)
@@ -57,78 +69,168 @@ func pollAllUsers() {
 			continue
 		}
 
-		// Poll this user's currently playing track
-		if err := pollUserActivity(userID, accessToken); err != nil {
+		refreshToken, _ := conn["refresh_token"].(string)
+
+		// Parse expires_at so we can proactively refresh before it hits 401
+		var expiresAt time.Time
+		if expiresAtStr, ok := conn["expires_at"].(string); ok {
+			expiresAt, _ = time.Parse(time.RFC3339, expiresAtStr)
+		}
+
+		if err := pollUserActivity(userID, accessToken, refreshToken, expiresAt); err != nil {
 			log.Printf("Error polling user %s: %v", userID, err)
 			continue
 		}
 	}
 }
 
-func pollUserActivity(userID, accessToken string) error {
+// pollUserActivity polls a single user's currently playing track.
+// FIX: Now accepts refreshToken + expiresAt so it can refresh expired tokens
+// inline rather than skipping the user entirely.
+func pollUserActivity(userID, accessToken, refreshToken string, expiresAt time.Time) error {
+	// Proactively refresh if token is expired or within 5 minutes of expiring.
+	// This prevents the 401 "Access token expired" errors seen in the logs.
+	if !expiresAt.IsZero() && time.Now().After(expiresAt.Add(-5*time.Minute)) {
+		log.Printf("Token for user %s is expired or expiring soon, refreshing...", userID)
+
+		spotifyClient := NewSpotifyClient(accessToken)
+		newToken, err := spotifyClient.RefreshToken(refreshToken)
+		if err != nil {
+			return err
+		}
+
+		accessToken = newToken.AccessToken
+		newExpiresAt := time.Now().Add(time.Duration(newToken.ExpiresIn) * time.Second)
+
+		// Persist the refreshed token back to the database
+		updateData := map[string]interface{}{
+			"access_token": newToken.AccessToken,
+			"expires_at":   newExpiresAt.Format(time.RFC3339),
+		}
+		// Only update refresh_token if Spotify returned a new one
+		if newToken.RefreshToken != "" {
+			updateData["refresh_token"] = newToken.RefreshToken
+		}
+
+		_, _, err = supabase.GetClient().From("spotify_connections").
+			Update(updateData, "", "").
+			Eq("user_id", userID).
+			Execute()
+		if err != nil {
+			// Non-fatal: we still have the new access token in memory, log and continue
+			log.Printf("Warning: failed to persist refreshed token for user %s: %v", userID, err)
+		} else {
+			log.Printf("Successfully refreshed token for user %s", userID)
+		}
+	}
+
 	spotifyClient := NewSpotifyClient(accessToken)
 
-	// Get currently playing track
 	track, err := spotifyClient.GetCurrentlyPlaying()
 	if err != nil {
 		return err
 	}
 
-	// If nothing is playing or no track info, skip
-	if !track.IsPlaying || track.Name == "" {
-		return nil
+	cacheMutex.RLock()
+	lastTrack, exists := userCache[userID]
+	cacheMutex.RUnlock()
+
+	shouldInsert := false
+
+	if !exists {
+		shouldInsert = track.IsPlaying && track.Name != ""
+	} else {
+		trackChanged := lastTrack.TrackName != track.Name ||
+			lastTrack.ArtistName != track.Artist ||
+			lastTrack.AlbumName != track.Album
+
+		playbackStateChanged := lastTrack.IsPlaying != track.IsPlaying
+
+		shouldInsert = trackChanged || (playbackStateChanged && track.IsPlaying && track.Name != "")
 	}
 
-	// Check if this is different from the last activity
-	client := supabase.GetClient()
-	data, _, err := client.From("listening_activity").
-		Select("track_name,artist_name", "", false).
-		Eq("user_id", userID).
-		Order("started_at", nil).
-		Limit(1, "").
-		Execute()
-
-	if err != nil {
-		log.Printf("Error fetching last activity for user %s: %v", userID, err)
-		// Continue anyway, we'll just insert the new activity
+	cacheMutex.Lock()
+	userCache[userID] = &UserTrackCache{
+		TrackName:  track.Name,
+		ArtistName: track.Artist,
+		AlbumName:  track.Album,
+		IsPlaying:  track.IsPlaying,
+		LastUpdate: time.Now(),
 	}
-
-	// Parse the JSON response
-	var lastActivities []map[string]interface{}
-	if len(data) > 0 {
-		if err := json.Unmarshal(data, &lastActivities); err != nil {
-			log.Printf("Error parsing last activity for user %s: %v", userID, err)
-		}
-	}
-
-	// Check if this track is different from the last one
-	shouldInsert := true
-	if len(lastActivities) > 0 {
-		lastTrack, trackOk := lastActivities[0]["track_name"].(string)
-		lastArtist, artistOk := lastActivities[0]["artist_name"].(string)
-
-		if trackOk && artistOk && lastTrack == track.Name && lastArtist == track.Artist {
-			shouldInsert = false
-		}
-	}
+	cacheMutex.Unlock()
 
 	if shouldInsert {
-		// Insert new listening activity
-		_, _, err = client.From("listening_activity").Insert(map[string]interface{}{
+		client := supabase.GetClient()
+
+		activityData := map[string]interface{}{
 			"user_id":       userID,
 			"track_name":    track.Name,
 			"artist_name":   track.Artist,
 			"album_name":    track.Album,
 			"album_art_url": track.AlbumArt,
+			"is_playing":    track.IsPlaying,
+			"progress_ms":   track.ProgressMs,
+			"played_at":     time.Now().Format(time.RFC3339),
 			"platform":      "spotify",
-			"started_at":    time.Now().Format(time.RFC3339),
-		}, false, "", "", "").Execute()
+		}
 
+		_, _, err = client.From("listening_activity").Insert(activityData, false, "", "", "").Execute()
 		if err != nil {
 			return err
 		}
 
-		log.Printf("Recorded new activity for user %s: %s - %s", userID, track.Artist, track.Name)
+		log.Printf("Recorded activity for user %s: %s - %s (playing: %v)",
+			userID, track.Artist, track.Name, track.IsPlaying)
+	}
+
+	return nil
+}
+
+// StoreRecentlyPlayed fetches and stores recently played tracks to avoid duplicates.
+func StoreRecentlyPlayed(userID, accessToken string) error {
+	spotifyClient := NewSpotifyClient(accessToken)
+
+	tracks, err := spotifyClient.GetRecentlyPlayed()
+	if err != nil {
+		return err
+	}
+
+	client := supabase.GetClient()
+
+	for _, track := range tracks {
+		data, _, err := client.From("listening_activity").
+			Select("id", "", false).
+			Eq("user_id", userID).
+			Eq("track_name", track.Name).
+			Eq("artist_name", track.Artist).
+			Eq("played_at", track.PlayedAt).
+			Execute()
+
+		if err != nil {
+			log.Printf("Error checking for duplicate: %v", err)
+			continue
+		}
+
+		if len(data) > 0 {
+			continue
+		}
+
+		activityData := map[string]interface{}{
+			"user_id":       userID,
+			"track_name":    track.Name,
+			"artist_name":   track.Artist,
+			"album_name":    track.Album,
+			"album_art_url": track.AlbumArt,
+			"is_playing":    false,
+			"played_at":     track.PlayedAt,
+			"platform":      "spotify",
+		}
+
+		_, _, err = client.From("listening_activity").Insert(activityData, false, "", "", "").Execute()
+		if err != nil {
+			log.Printf("Error storing recent track: %v", err)
+			continue
+		}
 	}
 
 	return nil

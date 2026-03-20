@@ -9,10 +9,24 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func RegisterRoutes(rg *gin.RouterGroup) {
+type UserProfile struct {
+	ID        string `json:"id"`
+	Email     string `json:"email"`
+	Username  string `json:"username"`
+	UserTag   string `json:"user_tag,omitempty"`
+	AvatarID  string `json:"avatar_id"`
+	IsPremium bool   `json:"is_premium"`
+	CreatedAt string `json:"created_at"`
+}
+
+func RegisterPublicRoutes(rg *gin.RouterGroup) {
 	rg.POST("/callback", handleAuthCallback)
-	rg.GET("/user", handleGetUser)
 	rg.POST("/signout", handleSignOut)
+}
+
+func RegisterProtectedRoutes(rg *gin.RouterGroup) {
+	rg.GET("/user", handleGetUser)
+	rg.POST("/user", handleUpdateUser)
 }
 
 func handleAuthCallback(c *gin.Context) {
@@ -25,17 +39,23 @@ func handleAuthCallback(c *gin.Context) {
 }
 
 func handleGetUser(c *gin.Context) {
-	userID, exists := GetUserFromContext(c)
+	userID, exists := c.Get("user_id")
 	if !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not found in context"})
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
+		return
+	}
+
+	userIDStr, ok := userID.(string)
+	if !ok {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Invalid user ID"})
 		return
 	}
 
 	// Query the users table in Supabase
 	client := supabase.GetClient()
 	data, _, err := client.From("users").
-		Select("id,email,username,avatar_id,is_premium,created_at", "", false).
-		Eq("id", userID).
+		Select("id,email,username,user_tag,avatar_id,is_premium,created_at", "", false).
+		Eq("id", userIDStr).
 		Execute()
 
 	if err != nil {
@@ -50,7 +70,7 @@ func handleGetUser(c *gin.Context) {
 	}
 
 	// Parse the JSON response
-	var users []map[string]interface{}
+	var users []UserProfile
 	if err := json.Unmarshal(data, &users); err != nil {
 		log.Printf("Error parsing user data: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to parse user data"})
@@ -62,8 +82,76 @@ func handleGetUser(c *gin.Context) {
 		return
 	}
 
+	// Return user data directly (not wrapped in "user" key)
+	c.JSON(http.StatusOK, users[0])
+}
+
+func handleUpdateUser(c *gin.Context) {
+	userID, exists := c.Get("user_id")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
+		return
+	}
+
+	userIDStr, ok := userID.(string)
+	if !ok {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Invalid user ID"})
+		return
+	}
+
+	var updateData map[string]interface{}
+	if err := c.ShouldBindJSON(&updateData); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	client := supabase.GetClient()
+
+	// If updating user_tag, check for uniqueness
+	if userTag, exists := updateData["user_tag"]; exists && userTag != "" {
+		userTagStr, ok := userTag.(string)
+		if !ok {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid user_tag format"})
+			return
+		}
+
+		// Check if user_tag is already taken by another user
+		data, _, err := client.From("users").
+			Select("id", "", false).
+			Eq("user_tag", userTagStr).
+			Neq("id", userIDStr).
+			Execute()
+
+		if err != nil {
+			log.Printf("Error checking user_tag uniqueness: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to validate user_tag"})
+			return
+		}
+
+		// Parse response to check if any users found
+		var existingUsers []map[string]interface{}
+		if len(data) > 0 {
+			if err := json.Unmarshal(data, &existingUsers); err == nil && len(existingUsers) > 0 {
+				c.JSON(http.StatusConflict, gin.H{"error": "User tag is already taken"})
+				return
+			}
+		}
+	}
+
+	// Update user in Supabase
+	_, _, err := client.From("users").
+		Update(updateData, "", "").
+		Eq("id", userIDStr).
+		Execute()
+
+	if err != nil {
+		log.Printf("Error updating user: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update user"})
+		return
+	}
+
 	c.JSON(http.StatusOK, gin.H{
-		"user": users[0],
+		"message": "User updated successfully",
 	})
 }
 

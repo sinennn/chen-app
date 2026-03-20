@@ -17,11 +17,11 @@ import {
   View
 } from 'react-native';
 
-//@ts-ignore
-import { ActivityIndicator } from 'react-native';
 import { Colors } from '@/constants/theme';
 import { signInWithApple, signInWithGoogle } from '@/lib/auth';
-import { supabase } from '@/lib/supabase';
+
+//@ts-ignore
+import { ActivityIndicator } from 'react-native';
 
 export default function LoginScreen() {
   const router = useRouter();
@@ -45,29 +45,8 @@ export default function LoginScreen() {
           return;
         }
         Alert.alert('Sign In Error', authResult.error);
-      } else if (authResult.user) {
-        // Create user row if it doesn't exist
-        await supabase.from('users').upsert({
-          id: authResult.user.id,
-          email: authResult.user.email,
-          created_at: new Date().toISOString()
-        }, { onConflict: 'id' });
-
-        // Check if user has avatar_id set
-        const { data } = await supabase
-          .from('users')
-          .select('avatar_id')
-          .eq('id', authResult.user.id)
-          .single();
-
-        if (!data?.avatar_id) {
-          // New user, send to onboarding
-          router.replace('/(auth)/avatar');
-        } else {
-          // Returning user, send to feed
-          router.replace('/(tabs)');
-        }
       }
+      // Auth layout will handle routing based on onboarding status
     } catch (error) {
       Alert.alert('Sign In Error', 'An unexpected error occurred. Please try again.');
       console.error('Google Sign-in error:', error);
@@ -152,24 +131,18 @@ export default function LoginScreen() {
 
           <Pressable
             onPress={async () => {
+              if (!agree) {
+                Alert.alert('Terms Required', 'Please agree to the Terms of Use to continue.');
+                return;
+              }
+
               setAppleLoading(true);
               try {
                 const result = await signInWithApple();
                 if (result.error && result.error !== 'cancelled') {
                   Alert.alert('Sign In Error', result.error);
-                } else if (result.user) {
-                  const { data } = await supabase
-                    .from('users')
-                    .select('avatar_id')
-                    .eq('id', result.user.id)
-                    .single();
-
-                  if (!data?.avatar_id) {
-                    router.replace('/(auth)/avatar');
-                  } else {
-                    router.replace('/(tabs)');
-                  }
                 }
+                // Auth layout will handle routing based on onboarding status
               } finally {
                 setAppleLoading(false);
               }

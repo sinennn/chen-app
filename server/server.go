@@ -9,6 +9,7 @@ import (
 	"chen/internal/messages"
 	"chen/internal/notifications"
 	"chen/internal/payments"
+	"chen/internal/profile"
 	"chen/internal/reactions"
 	"chen/internal/spotify"
 	"chen/pkg/supabase"
@@ -68,15 +69,19 @@ func main() {
 
 	v1 := router.Group("/api/v1")
 	{
-
-		auth.RegisterRoutes(v1.Group("/auth"))
+		// Public auth routes (no JWT required)
+		auth.RegisterPublicRoutes(v1.Group("/auth"))
 
 		protected := v1.Group("")
 		protected.Use(auth.JWTMiddleware())
 		{
+			// Protected auth routes (JWT required)
+			auth.RegisterProtectedRoutes(protected.Group("/auth"))
+
 			spotify.RegisterRoutes(protected.Group("/spotify"))
 			friends.RegisterRoutes(protected.Group("/friends"))
 			activity.RegisterRoutes(protected.Group("/activity"))
+			profile.RegisterProfileRoutes(protected.Group("/profile"))
 			compatibility.RegisterRoutes(protected.Group("/compatibility"))
 			chen.RegisterRoutes(protected.Group("/chen"))
 			payments.RegisterRoutes(protected.Group("/payments"))

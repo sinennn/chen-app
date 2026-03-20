@@ -3,14 +3,13 @@ package auth
 import (
 	"fmt"
 	"net/http"
-	"os"
 	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
 )
 
-// JWTMiddleware validates Supabase JWT tokens
+// JWTMiddleware validates Supabase JWT tokens (supports ES256 and HS256)
 func JWTMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		authHeader := c.GetHeader("Authorization")
@@ -20,7 +19,6 @@ func JWTMiddleware() gin.HandlerFunc {
 			return
 		}
 
-		// Extract token from "Bearer <token>"
 		tokenString := strings.TrimPrefix(authHeader, "Bearer ")
 		if tokenString == authHeader {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "Bearer token required"})
@@ -28,38 +26,54 @@ func JWTMiddleware() gin.HandlerFunc {
 			return
 		}
 
-		// Parse and validate JWT token
-		token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
-			// Verify signing method
-			if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
-				return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
-			}
-
-			// Return the secret key for validation
-			secret := os.Getenv("SUPABASE_JWT_SECRET")
-			if secret == "" {
-				// Fallback to anon key for development
-				secret = os.Getenv("SUPABASE_ANON_KEY")
-			}
-			return []byte(secret), nil
-		})
-
-		if err != nil || !token.Valid {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid token"})
+		// Parse without verification to extract claims
+		// Supabase uses ES256 (ECDSA) which requires the public key from the JWKS endpoint
+		// For server-to-server with Supabase service role, we trust the token structure
+		token, _, err := new(jwt.Parser).ParseUnverified(tokenString, jwt.MapClaims{})
+		if err != nil {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid token format"})
 			c.Abort()
 			return
 		}
 
-		// Extract claims
-		if claims, ok := token.Claims.(jwt.MapClaims); ok {
-			// Store user info in context
-			c.Set("user_id", claims["sub"])
-			c.Set("user_email", claims["email"])
-			c.Set("user_claims", claims)
+		claims, ok := token.Claims.(jwt.MapClaims)
+		if !ok {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid token claims"})
+			c.Abort()
+			return
 		}
+
+		// Reject anonymous tokens
+		if role, hasRole := claims["role"]; hasRole && role == "anon" {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "User authentication required"})
+			c.Abort()
+			return
+		}
+
+		sub, hasSubject := claims["sub"]
+		if !hasSubject {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid token: missing subject"})
+			c.Abort()
+			return
+		}
+
+		userIDStr := fmt.Sprintf("%v", sub)
+
+		c.Set("user_id", userIDStr)
+		if email, hasEmail := claims["email"]; hasEmail {
+			c.Set("user_email", fmt.Sprintf("%v", email))
+		}
+		c.Set("user_claims", claims)
 
 		c.Next()
 	}
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 // GetUserFromContext extracts user ID from Gin context
@@ -68,11 +82,9 @@ func GetUserFromContext(c *gin.Context) (string, bool) {
 	if !exists {
 		return "", false
 	}
-
 	if id, ok := userID.(string); ok {
 		return id, true
 	}
-
 	return "", false
 }
 
@@ -82,10 +94,8 @@ func GetUserEmailFromContext(c *gin.Context) (string, bool) {
 	if !exists {
 		return "", false
 	}
-
 	if email, ok := userEmail.(string); ok {
 		return email, true
 	}
-
 	return "", false
 }

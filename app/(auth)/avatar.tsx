@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { useRouter } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
 import {
@@ -47,7 +48,7 @@ export default function AvatarScreen() {
   const handleSlideComplete = () => {
     if (selectedAvatar) {
       router.push({ 
-        pathname: '/(auth)/music-services', 
+        pathname: '/(auth)/username', 
         params: { avatarSeed: selectedAvatar } 
       });
     }
