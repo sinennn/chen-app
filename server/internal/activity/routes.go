@@ -6,9 +6,11 @@ import (
 	"net/http"
 	"time"
 
+	"chen/internal/friends"
 	"chen/pkg/supabase"
 
 	"github.com/gin-gonic/gin"
+	"github.com/supabase-community/postgrest-go"
 )
 
 type ActivityItem struct {
@@ -22,6 +24,7 @@ type ActivityItem struct {
 	AlbumArtURL string    `json:"album_art_url"`
 	Platform    string    `json:"platform"`
 	StartedAt   time.Time `json:"started_at"`
+	PlayedAt    time.Time `json:"played_at"`
 	IsPlaying   bool      `json:"is_playing"`
 }
 
@@ -48,24 +51,29 @@ func getFeed(c *gin.Context) {
 		return
 	}
 
-	// Get global activity feed from all users
-	// Use a more complex query to join with users table
-	query := `
-		listening_activity.id,
-		listening_activity.user_id,
-		listening_activity.track_name,
-		listening_activity.artist_name,
-		listening_activity.album_name,
-		listening_activity.album_art_url,
-		listening_activity.platform,
-		listening_activity.played_at,
-		listening_activity.is_playing,
-		users!inner(username, avatar_id)
+	friendIDs, err := friends.GetAcceptedFriendIDs(userIDStr)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to resolve friends"})
+		return
+	}
+
+	visibleUserIDs := append(friendIDs, userIDStr)
+	activityQuery := `
+		id,
+		user_id,
+		track_name,
+		artist_name,
+		album_name,
+		album_art_url,
+		platform,
+		played_at,
+		is_playing
 	`
 
 	data, _, err := client.From("listening_activity").
-		Select(query, "", false).
-		Order("played_at", nil).
+		Select(activityQuery, "", false).
+		In("user_id", visibleUserIDs).
+		Order("played_at", &postgrest.OrderOpts{Ascending: false}).
 		Limit(50, "").
 		Execute()
 
@@ -88,32 +96,51 @@ func getFeed(c *gin.Context) {
 		return
 	}
 
-	// Convert to ActivityItem structs
+	userData, _, err := client.From("users").
+		Select("id, username, avatar_id", "", false).
+		In("id", visibleUserIDs).
+		Execute()
+	if err != nil {
+		fmt.Printf("Error fetching users for feed: %v\n", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch feed users"})
+		return
+	}
+
+	var users []map[string]interface{}
+	if err := json.Unmarshal(userData, &users); err != nil {
+		fmt.Printf("Error parsing feed users: %v\n", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to parse feed users"})
+		return
+	}
+
+	userMap := make(map[string]map[string]interface{}, len(users))
+	for _, user := range users {
+		userMap[fmt.Sprintf("%v", user["id"])] = user
+	}
+
 	var feedItems []ActivityItem
 	for _, activity := range activities {
-		// Parse the timestamp
 		playedAtStr, _ := activity["played_at"].(string)
 		playedAt, _ := time.Parse(time.RFC3339, playedAtStr)
 
-		// Extract user info from nested users object
-		var username, avatarID string
-		if users, ok := activity["users"].(map[string]interface{}); ok {
-			username = fmt.Sprintf("%v", users["username"])
-			avatarID = fmt.Sprintf("%v", users["avatar_id"])
+		userInfo, ok := userMap[fmt.Sprintf("%v", activity["user_id"])]
+		if !ok {
+			continue
 		}
 
 		feedItem := ActivityItem{
 			ID:          fmt.Sprintf("%v", activity["id"]),
 			UserID:      fmt.Sprintf("%v", activity["user_id"]),
-			Username:    username,
-			AvatarID:    avatarID,
+			Username:    toString(userInfo["username"]),
+			AvatarID:    toString(userInfo["avatar_id"]),
 			TrackName:   fmt.Sprintf("%v", activity["track_name"]),
 			ArtistName:  fmt.Sprintf("%v", activity["artist_name"]),
 			AlbumName:   fmt.Sprintf("%v", activity["album_name"]),
 			AlbumArtURL: fmt.Sprintf("%v", activity["album_art_url"]),
 			Platform:    fmt.Sprintf("%v", activity["platform"]),
 			StartedAt:   playedAt,
-			IsPlaying:   activity["is_playing"].(bool),
+			PlayedAt:    playedAt,
+			IsPlaying:   toBool(activity["is_playing"]),
 		}
 
 		feedItems = append(feedItems, feedItem)
@@ -121,4 +148,17 @@ func getFeed(c *gin.Context) {
 
 	fmt.Printf("Returning %d global feed items for user: %s\n", len(feedItems), userIDStr)
 	c.JSON(http.StatusOK, feedItems)
+}
+
+func toBool(value any) bool {
+	result, ok := value.(bool)
+	return ok && result
+}
+
+func toString(value any) string {
+	if value == nil {
+		return ""
+	}
+
+	return fmt.Sprintf("%v", value)
 }

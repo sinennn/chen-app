@@ -23,14 +23,6 @@ import {
 const { width: screenWidth } = Dimensions.get('window');
 
 function FeedCard({ item, index, onCommentPress }: { item: ActivityItem; index: number; onCommentPress: (item: ActivityItem) => void }) {
-  console.log(`FeedCard ${index} rendering with item:`, {
-    id: item.id,
-    username: item.username,
-    avatar_id: item.avatar_id,
-    track_name: item.track_name,
-    artist_name: item.artist_name
-  });
-
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(40)).current;
   const scaleAnim = useRef(new Animated.Value(1)).current;
@@ -49,6 +41,10 @@ function FeedCard({ item, index, onCommentPress }: { item: ActivityItem; index: 
   ];
 
   const context = contextOptions[index % contextOptions.length];
+
+  // Fallback values for missing user data
+  const displayUsername = item.username || "Unknown User";
+  const displayAvatarId = item.avatar_id || "default";
 
   // Format timestamp as "Xm ago"
   const formatTimestamp = (timestamp?: string) => {
@@ -144,7 +140,7 @@ function FeedCard({ item, index, onCommentPress }: { item: ActivityItem; index: 
           >
             <Image
               source={{ 
-                uri: `https://api.dicebear.com/7.x/adventurer/png?seed=${item.avatar_id}&size=40&backgroundColor=0D0B09`
+                uri: `https://api.dicebear.com/7.x/adventurer/png?seed=${displayAvatarId}&size=40&backgroundColor=0D0B09`
               }}
               style={{
                 width: 36,
@@ -162,7 +158,7 @@ function FeedCard({ item, index, onCommentPress }: { item: ActivityItem; index: 
                   fontSize: 15,
                 }}
               >
-                {item.username}
+                {displayUsername}
               </Text>
 
               <Text
@@ -568,7 +564,7 @@ function SkeletonCard({ index }: { index: number }) {
 
 export default function FeedScreen() {
   const router = useRouter();
-  const { profile: authProfile, refreshProfile } = useAuth();
+  const { user, profile: authProfile, refreshProfile, loading: authLoading } = useAuth();
   const [profile, setProfile] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -585,6 +581,12 @@ export default function FeedScreen() {
   }, [authProfile]);
 
   const fetchFeed = async (isRefresh = false) => {
+    if (authLoading || !user) {
+      setLoading(false);
+      setRefreshing(false);
+      return;
+    }
+
     try {
       if (!isRefresh) setLoading(true);
       setError(null);
@@ -593,18 +595,8 @@ export default function FeedScreen() {
       await refreshProfile();
       
       const feedData = await api.feed.get();
-      console.log('Feed data received:', feedData);
-      console.log('First item details:', feedData[0] ? {
-        id: feedData[0].id,
-        username: feedData[0].username,
-        avatar_id: feedData[0].avatar_id,
-        track_name: feedData[0].track_name,
-        artist_name: feedData[0].artist_name
-      } : 'No items');
-      
       setFeed(feedData);
     } catch (err) {
-      console.error('Error fetching feed:', err);
       setFeed([]);
     } finally {
       setLoading(false);
@@ -618,7 +610,21 @@ export default function FeedScreen() {
   };
 
   useEffect(() => {
+    if (authLoading || !user) {
+      return;
+    }
+
     fetchFeed();
+
+    let refreshTimeout: ReturnType<typeof setTimeout> | null = null;
+    const scheduleRefresh = () => {
+      if (refreshTimeout) {
+        clearTimeout(refreshTimeout);
+      }
+      refreshTimeout = setTimeout(() => {
+        fetchFeed(true);
+      }, 400);
+    };
 
     // Subscribe to realtime updates on listening_activity table
     const channel = supabase
@@ -630,10 +636,8 @@ export default function FeedScreen() {
           schema: 'public',
           table: 'listening_activity',
         },
-        (payload) => {
-          // Add new activity to the top of the feed with animation
-          const newActivity = payload.new as ActivityItem;
-          setFeed(prevFeed => [newActivity, ...prevFeed.slice(0, 49)]); // Keep max 50 items
+        () => {
+          scheduleRefresh();
         }
       )
       .on(
@@ -643,22 +647,19 @@ export default function FeedScreen() {
           schema: 'public',
           table: 'listening_activity',
         },
-        (payload) => {
-          // Update existing activity when is_playing status changes
-          const updatedActivity = payload.new as ActivityItem;
-          setFeed(prevFeed => 
-            prevFeed.map(item => 
-              item.id === updatedActivity.id ? { ...item, ...updatedActivity } : item
-            )
-          );
+        () => {
+          scheduleRefresh();
         }
       )
       .subscribe();
 
     return () => {
+      if (refreshTimeout) {
+        clearTimeout(refreshTimeout);
+      }
       supabase.removeChannel(channel);
     };
-  }, []);
+  }, [authLoading, user]);
 
   const handleCommentPress = (item: ActivityItem) => {
     setSelectedActivity(item);
@@ -793,4 +794,3 @@ export default function FeedScreen() {
     </View>
   );
 }
-

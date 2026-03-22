@@ -107,6 +107,37 @@ func handleUpdateUser(c *gin.Context) {
 
 	client := supabase.GetClient()
 
+	// If updating username, check for uniqueness
+	if username, exists := updateData["username"]; exists && username != "" {
+		usernameStr, ok := username.(string)
+		if !ok {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid username format"})
+			return
+		}
+
+		// Check if username is already taken by another user
+		data, _, err := client.From("users").
+			Select("id", "", false).
+			Eq("username", usernameStr).
+			Neq("id", userIDStr).
+			Execute()
+
+		if err != nil {
+			log.Printf("Error checking username uniqueness: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to validate username"})
+			return
+		}
+
+		// Parse response to check if any users found
+		var existingUsers []map[string]interface{}
+		if len(data) > 0 {
+			if err := json.Unmarshal(data, &existingUsers); err == nil && len(existingUsers) > 0 {
+				c.JSON(http.StatusConflict, gin.H{"error": "Username is already taken"})
+				return
+			}
+		}
+	}
+
 	// If updating user_tag, check for uniqueness
 	if userTag, exists := updateData["user_tag"]; exists && userTag != "" {
 		userTagStr, ok := userTag.(string)

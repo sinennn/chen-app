@@ -312,7 +312,15 @@ export default function SettingsScreen() {
         { 
           text: 'Sign Out', 
           style: 'destructive',
-          onPress: () => signOut()
+          onPress: async () => {
+            console.log('Settings: User confirmed sign out, calling signOut()');
+            try {
+              await signOut();
+              console.log('Settings: signOut() completed successfully');
+            } catch (error) {
+              console.error('Settings: signOut() failed:', error);
+            }
+          }
         }
       ]
     );

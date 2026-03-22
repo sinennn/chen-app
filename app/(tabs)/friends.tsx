@@ -1,23 +1,25 @@
-//@ts-nocheck
+import { AddFriendModal } from '@/components/add-friend-modal';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { Colors } from '@/constants/theme';
 import { useAuth } from '@/contexts/AuthContext';
-import { api } from '@/lib/api';
+import { Friend, api } from '@/lib/api';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   Animated,
   Image,
   ImageBackground,
   Pressable,
   ScrollView,
+  Share,
   Text,
   View
 } from 'react-native';
 
-function FriendCard({ friend, index, onPress }: { friend: any; index: number; onPress: () => void }) {
+function FriendCard({ friend, index, onPress }: { friend: Friend; index: number; onPress: () => void }) {
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(40)).current;
   const pulseAnim = useRef(new Animated.Value(1)).current;
@@ -140,7 +142,7 @@ function EmptyState({ onAddFriend }: { onAddFriend: () => void }) {
         Your circle is empty
       </Text>
       <Text style={{ color: Colors.textSecondary, fontSize: 14, textAlign: 'center', lineHeight: 22, marginBottom: 36 }}>
-        Add friends to see what they're listening to in real time. Music hits different when you share it.
+        Add friends to see what they&apos;re listening to in real time. Music hits different when you share it.
       </Text>
 
       <Pressable
@@ -170,26 +172,102 @@ function EmptyState({ onAddFriend }: { onAddFriend: () => void }) {
 
 export default function FriendsScreen() {
   const [loading, setLoading] = useState(true);
-  const [friends, setFriends] = useState<any[]>([]);
+  const [friends, setFriends] = useState<Friend[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [addFriendModalVisible, setAddFriendModalVisible] = useState(false);
   const router = useRouter();
-  const { profile } = useAuth();
+  const { profile, user, loading: authLoading } = useAuth();
+
+  const generateFriendLink = () => {
+    if (!profile?.username) {
+      Alert.alert('Error', 'Username not found');
+      return;
+    }
+    
+    const friendLink = `https://chen.app/friends/${profile.username}`;
+    return friendLink;
+  };
+
+  const shareFriendLink = async () => {
+    const friendLink = generateFriendLink();
+    if (!friendLink) return;
+
+    try {
+      await Share.share({
+        message: `Join me on Chen! Let's share music together 🎧\n\nMy friend link: ${friendLink}`,
+        url: friendLink,
+      });
+    } catch (error) {
+      console.error('Failed to share link:', error);
+      Alert.alert('Error', 'Failed to share link');
+    }
+  };
+
+  const handleAddFriend = () => {
+    setAddFriendModalVisible(true);
+  };
+
+  const handleSearchByUsername = () => {
+    Alert.alert(
+      'Find Friends',
+      'How would you like to add friends?',
+      [
+        {
+          text: 'Share Your Link',
+          onPress: () => {
+            Alert.alert(
+              'Share Your Friend Link',
+              'Share your friend link so others can add you!',
+              [
+                {
+                  text: 'Share Link',
+                  onPress: shareFriendLink,
+                },
+                {
+                  text: 'Cancel',
+                  style: 'cancel',
+                },
+              ]
+            );
+          },
+        },
+        {
+          text: 'Search by Username',
+          onPress: () => setAddFriendModalVisible(true),
+        },
+        {
+          text: 'Cancel',
+          style: 'cancel',
+        },
+      ]
+    );
+  };
 
   const fetchFriends = async () => {
+    if (authLoading || !user) {
+      setLoading(false);
+      return;
+    }
+
     try {
       setLoading(true);
       setError(null);
       const friendsData = await api.friends.list();
       setFriends(friendsData);
-    } catch (err) {
-      console.error('Error fetching friends:', err);
+    } catch {
       setError('Failed to load friends');
     } finally {
       setLoading(false);
     }
   };
 
-  useEffect(() => { fetchFriends(); }, []);
+  useEffect(() => {
+    if (authLoading || !user) {
+      return;
+    }
+
+    fetchFriends();
+  }, [authLoading, user]);
 
   return (
     <View style={{ flex: 1 }}>
@@ -217,12 +295,15 @@ export default function FriendsScreen() {
           }}>
             <Text style={{ fontSize: 28, fontWeight: '700', color: Colors.textPrimary }}>Friends</Text>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-              <Pressable style={{
-                width: 40, height: 40, borderRadius: 20,
-                backgroundColor: 'rgba(255,255,255,0.08)',
-                alignItems: 'center', justifyContent: 'center',
-                borderWidth: 1, borderColor: 'rgba(232,100,10,0.15)',
-              }}>
+              <Pressable 
+                onPress={handleSearchByUsername}
+                style={{
+                  width: 40, height: 40, borderRadius: 20,
+                  backgroundColor: 'rgba(255,255,255,0.08)',
+                  alignItems: 'center', justifyContent: 'center',
+                  borderWidth: 1, borderColor: 'rgba(232,100,10,0.15)',
+                }}
+              >
                 <IconSymbol name="person.badge.plus" size={20} color={Colors.orange} />
               </Pressable>
               <Pressable style={{
@@ -257,7 +338,7 @@ export default function FriendsScreen() {
               </Pressable>
             </View>
           ) : friends.length === 0 ? (
-            <EmptyState onAddFriend={() => { /* TODO: open add friend modal */ }} />
+            <EmptyState onAddFriend={handleAddFriend} />
           ) : (
             <ScrollView
               style={{ flex: 1 }}
@@ -304,6 +385,12 @@ export default function FriendsScreen() {
           )}
         </LinearGradient>
       </ImageBackground>
+      
+      {/* Add Friend Modal */}
+      <AddFriendModal
+        visible={addFriendModalVisible}
+        onClose={() => setAddFriendModalVisible(false)}
+      />
     </View>
   );
 }

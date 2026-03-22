@@ -1,11 +1,12 @@
 package spotify
 
 import (
-	"chen/pkg/supabase"
-	"encoding/json"
-	"log"
+	"errors"
 	"net/http"
 	"time"
+
+	"chen/internal/auth"
+	"chen/pkg/supabase"
 
 	"github.com/gin-gonic/gin"
 )
@@ -37,18 +38,13 @@ func RegisterRoutes(rg *gin.RouterGroup) {
 	rg.GET("/top-tracks", handleTopTracks)
 	rg.GET("/top-artists", handleTopArtists)
 	rg.GET("/on-repeat", handleOnRepeat)
+	rg.GET("/recommendations", handleRecommendations)
 }
 
 func handleConnect(c *gin.Context) {
-	userID, exists := c.Get("user_id")
+	userID, exists := auth.GetUserFromContext(c)
 	if !exists {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
-		return
-	}
-
-	userIDStr, ok := userID.(string)
-	if !ok {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Invalid user ID"})
 		return
 	}
 
@@ -58,316 +54,144 @@ func handleConnect(c *gin.Context) {
 		return
 	}
 
-	// Calculate expiration time
-	expiresAt := time.Now().Add(time.Duration(req.ExpiresIn) * time.Second)
-
-	// Store in Supabase
 	client := supabase.GetClient()
-	_, _, err := client.From("spotify_connections").Upsert(map[string]interface{}{
-		"user_id":       userIDStr,
+	if client == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Database connection failed"})
+		return
+	}
+
+	expiresAt := time.Now().Add(time.Duration(req.ExpiresIn) * time.Second)
+	_, _, err := client.From("spotify_connections").Upsert(map[string]any{
+		"user_id":       userID,
 		"access_token":  req.AccessToken,
 		"refresh_token": req.RefreshToken,
 		"expires_at":    expiresAt.Format(time.RFC3339),
 	}, "", "", "").Execute()
-
 	if err != nil {
-		log.Printf("Error storing Spotify connection: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to store connection"})
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"message": "Spotify connected successfully",
-	})
+	c.JSON(http.StatusOK, gin.H{"message": "Spotify connected successfully"})
 }
 
 func handleNowPlaying(c *gin.Context) {
-	userID, exists := c.Get("user_id")
+	userID, exists := auth.GetUserFromContext(c)
 	if !exists {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
 		return
 	}
 
-	userIDStr, ok := userID.(string)
-	if !ok {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Invalid user ID"})
-		return
-	}
-
-	// Get access token and refresh token from database
-	client := supabase.GetClient()
-	data, _, err := client.From("spotify_connections").
-		Select("access_token,refresh_token,expires_at", "", false).
-		Eq("user_id", userIDStr).
-		Execute()
-
+	spotifyClient, _, err := GetAuthorizedClient(userID)
 	if err != nil {
-		log.Printf("Error fetching Spotify connection: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch connection"})
-		return
-	}
-
-	if len(data) == 0 {
-		c.JSON(http.StatusOK, nil)
-		return
-	}
-
-	// Parse the JSON response
-	var connections []map[string]interface{}
-	if err := json.Unmarshal(data, &connections); err != nil {
-		log.Printf("Error parsing Spotify connection: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to parse connection"})
-		return
-	}
-
-	if len(connections) == 0 {
-		c.JSON(http.StatusOK, nil)
-		return
-	}
-
-	accessToken, ok := connections[0]["access_token"].(string)
-	if !ok {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Invalid access token"})
-		return
-	}
-
-	refreshToken, _ := connections[0]["refresh_token"].(string)
-
-	var expiresAt time.Time
-	if expiresAtStr, ok := connections[0]["expires_at"].(string); ok {
-		expiresAt, _ = time.Parse(time.RFC3339, expiresAtStr)
-	}
-
-	// Check if token is expired or expiring soon, and refresh if needed
-	if !expiresAt.IsZero() && time.Now().After(expiresAt.Add(-5*time.Minute)) {
-		log.Printf("Token for user %s is expired or expiring soon, refreshing...", userIDStr)
-
-		tempClient := NewSpotifyClient(accessToken)
-		newToken, err := tempClient.RefreshToken(refreshToken)
-		if err != nil {
-			log.Printf("Error refreshing token for user %s: %v", userIDStr, err)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to refresh access token"})
+		if errors.Is(err, ErrNoSpotifyConnection) {
+			c.JSON(http.StatusOK, nil)
 			return
 		}
-
-		accessToken = newToken.AccessToken
-		newExpiresAt := time.Now().Add(time.Duration(newToken.ExpiresIn) * time.Second)
-
-		// Update the database with the new token
-		updateData := map[string]interface{}{
-			"access_token": newToken.AccessToken,
-			"expires_at":   newExpiresAt.Format(time.RFC3339),
-		}
-		if newToken.RefreshToken != "" {
-			updateData["refresh_token"] = newToken.RefreshToken
-		}
-
-		_, _, err = client.From("spotify_connections").
-			Update(updateData, "", "").
-			Eq("user_id", userIDStr).
-			Execute()
-		if err != nil {
-			log.Printf("Warning: failed to persist refreshed token for user %s: %v", userIDStr, err)
-		} else {
-			log.Printf("Successfully refreshed token for user %s", userIDStr)
-		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to load Spotify connection"})
+		return
 	}
 
-	// Get currently playing track from Spotify API (real-time)
-	spotifyClient := NewSpotifyClient(accessToken)
 	track, err := spotifyClient.GetCurrentlyPlaying()
 	if err != nil {
-		log.Printf("Error getting currently playing track: %v", err)
+		if _, ok := err.(*SpotifyRateLimitError); ok {
+			c.JSON(http.StatusOK, nil)
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch currently playing track"})
+		return
+	}
+
+	if track == nil || !track.IsPlaying || track.Name == "" {
 		c.JSON(http.StatusOK, nil)
 		return
 	}
 
-	// Return current track state (don't store here, let poller handle storage)
-	if track.IsPlaying && track.Name != "" {
-		activityItem := ActivityItem{
-			UserID:      userIDStr,
+	c.JSON(http.StatusOK, ActivityItem{
+		UserID:      userID,
+		TrackName:   track.Name,
+		ArtistName:  track.Artist,
+		AlbumName:   track.Album,
+		AlbumArtURL: track.AlbumArt,
+		Platform:    "spotify",
+		StartedAt:   time.Now(),
+		IsPlaying:   track.IsPlaying,
+	})
+}
+
+func handleRecent(c *gin.Context) {
+	userID, exists := auth.GetUserFromContext(c)
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
+		return
+	}
+
+	spotifyClient, _, err := GetAuthorizedClient(userID)
+	if err != nil {
+		if errors.Is(err, ErrNoSpotifyConnection) {
+			c.JSON(http.StatusOK, []ActivityItem{})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to load Spotify connection"})
+		return
+	}
+
+	tracks, err := spotifyClient.GetRecentlyPlayed()
+	if err != nil {
+		if _, ok := err.(*SpotifyRateLimitError); ok {
+			c.JSON(http.StatusOK, []ActivityItem{})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch recent activity"})
+		return
+	}
+
+	activities := make([]ActivityItem, 0, min(len(tracks), 10))
+	for _, track := range tracks {
+		if len(activities) == 10 {
+			break
+		}
+
+		playedAt, _ := time.Parse(time.RFC3339, track.PlayedAt)
+		activities = append(activities, ActivityItem{
+			UserID:      userID,
 			TrackName:   track.Name,
 			ArtistName:  track.Artist,
 			AlbumName:   track.Album,
 			AlbumArtURL: track.AlbumArt,
 			Platform:    "spotify",
-			StartedAt:   time.Now(),
-			IsPlaying:   track.IsPlaying,
-		}
-
-		c.JSON(http.StatusOK, activityItem)
-		return
-	}
-
-	c.JSON(http.StatusOK, nil)
-}
-
-func handleRecent(c *gin.Context) {
-	userID, exists := c.Get("user_id")
-	if !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
-		return
-	}
-
-	userIDStr, ok := userID.(string)
-	if !ok {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Invalid user ID"})
-		return
-	}
-
-	// Get recent activity from database (stored by poller)
-	client := supabase.GetClient()
-	data, _, err := client.From("listening_activity").
-		Select("track_name,artist_name,album_name,album_art_url,played_at,is_playing", "", false).
-		Eq("user_id", userIDStr).
-		Order("played_at", nil).
-		Limit(20, "").
-		Execute()
-
-	if err != nil {
-		log.Printf("Error fetching recent activity: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch recent activity"})
-		return
-	}
-
-	if len(data) == 0 {
-		c.JSON(http.StatusOK, []ActivityItem{})
-		return
-	}
-
-	// Parse the JSON response
-	var activities []map[string]interface{}
-	if err := json.Unmarshal(data, &activities); err != nil {
-		log.Printf("Error parsing recent activities: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to parse activities"})
-		return
-	}
-
-	// Convert to ActivityItem format
-	activityItems := make([]ActivityItem, len(activities))
-	for i, activity := range activities {
-		playedAtStr, _ := activity["played_at"].(string)
-		playedAt, _ := time.Parse(time.RFC3339, playedAtStr)
-
-		activityItems[i] = ActivityItem{
-			UserID:      userIDStr,
-			TrackName:   activity["track_name"].(string),
-			ArtistName:  activity["artist_name"].(string),
-			AlbumName:   activity["album_name"].(string),
-			AlbumArtURL: activity["album_art_url"].(string),
-			Platform:    "spotify",
 			StartedAt:   playedAt,
-			IsPlaying:   activity["is_playing"].(bool),
-		}
+			IsPlaying:   false,
+		})
 	}
 
-	c.JSON(http.StatusOK, activityItems)
+	c.JSON(http.StatusOK, activities)
 }
 
 func handleTopTracks(c *gin.Context) {
-	userID, exists := c.Get("user_id")
+	userID, exists := auth.GetUserFromContext(c)
 	if !exists {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
 		return
 	}
 
-	userIDStr, ok := userID.(string)
-	if !ok {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Invalid user ID"})
-		return
-	}
-
-	// Get time range from query params (short_term, medium_term, long_term)
-	timeRange := c.DefaultQuery("time_range", "medium_term")
-	if timeRange != "short_term" && timeRange != "medium_term" && timeRange != "long_term" {
-		timeRange = "medium_term"
-	}
-
-	// Get access token and refresh token from database
-	client := supabase.GetClient()
-	data, _, err := client.From("spotify_connections").
-		Select("access_token,refresh_token,expires_at", "", false).
-		Eq("user_id", userIDStr).
-		Execute()
-
+	spotifyClient, _, err := GetAuthorizedClient(userID)
 	if err != nil {
-		log.Printf("Error fetching Spotify connection: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch connection"})
-		return
-	}
-
-	if len(data) == 0 {
-		c.JSON(http.StatusOK, []TopTrack{})
-		return
-	}
-
-	// Parse the JSON response
-	var connections []map[string]interface{}
-	if err := json.Unmarshal(data, &connections); err != nil {
-		log.Printf("Error parsing Spotify connection: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to parse connection"})
-		return
-	}
-
-	if len(connections) == 0 {
-		c.JSON(http.StatusOK, []TopTrack{})
-		return
-	}
-
-	accessToken, ok := connections[0]["access_token"].(string)
-	if !ok {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Invalid access token"})
-		return
-	}
-
-	refreshToken, _ := connections[0]["refresh_token"].(string)
-
-	var expiresAt time.Time
-	if expiresAtStr, ok := connections[0]["expires_at"].(string); ok {
-		expiresAt, _ = time.Parse(time.RFC3339, expiresAtStr)
-	}
-
-	// Check if token is expired or expiring soon, and refresh if needed
-	if !expiresAt.IsZero() && time.Now().After(expiresAt.Add(-5*time.Minute)) {
-		log.Printf("Token for user %s is expired or expiring soon, refreshing...", userIDStr)
-
-		tempClient := NewSpotifyClient(accessToken)
-		newToken, err := tempClient.RefreshToken(refreshToken)
-		if err != nil {
-			log.Printf("Error refreshing token for user %s: %v", userIDStr, err)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to refresh access token"})
+		if errors.Is(err, ErrNoSpotifyConnection) {
+			c.JSON(http.StatusOK, []TopTrack{})
 			return
 		}
-
-		accessToken = newToken.AccessToken
-		newExpiresAt := time.Now().Add(time.Duration(newToken.ExpiresIn) * time.Second)
-
-		// Update the database with the new token
-		updateData := map[string]interface{}{
-			"access_token": newToken.AccessToken,
-			"expires_at":   newExpiresAt.Format(time.RFC3339),
-		}
-		if newToken.RefreshToken != "" {
-			updateData["refresh_token"] = newToken.RefreshToken
-		}
-
-		_, _, err = client.From("spotify_connections").
-			Update(updateData, "", "").
-			Eq("user_id", userIDStr).
-			Execute()
-		if err != nil {
-			log.Printf("Warning: failed to persist refreshed token for user %s: %v", userIDStr, err)
-		} else {
-			log.Printf("Successfully refreshed token for user %s", userIDStr)
-		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to load Spotify connection"})
+		return
 	}
 
-	// Get top tracks from Spotify API
-	spotifyClient := NewSpotifyClient(accessToken)
-	tracks, err := spotifyClient.GetTopTracks(timeRange)
+	tracks, err := spotifyClient.GetTopTracks(validTimeRange(c.DefaultQuery("time_range", "medium_term")))
 	if err != nil {
-		log.Printf("Error getting top tracks: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get top tracks"})
+		if _, ok := err.(*SpotifyRateLimitError); ok {
+			c.JSON(http.StatusOK, []TopTrack{})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch top tracks"})
 		return
 	}
 
@@ -375,109 +199,29 @@ func handleTopTracks(c *gin.Context) {
 }
 
 func handleTopArtists(c *gin.Context) {
-	userID, exists := c.Get("user_id")
+	userID, exists := auth.GetUserFromContext(c)
 	if !exists {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
 		return
 	}
 
-	userIDStr, ok := userID.(string)
-	if !ok {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Invalid user ID"})
-		return
-	}
-
-	// Get time range from query params (short_term, medium_term, long_term)
-	timeRange := c.DefaultQuery("time_range", "medium_term")
-	if timeRange != "short_term" && timeRange != "medium_term" && timeRange != "long_term" {
-		timeRange = "medium_term"
-	}
-
-	// Get access token and refresh token from database
-	client := supabase.GetClient()
-	data, _, err := client.From("spotify_connections").
-		Select("access_token,refresh_token,expires_at", "", false).
-		Eq("user_id", userIDStr).
-		Execute()
-
+	spotifyClient, _, err := GetAuthorizedClient(userID)
 	if err != nil {
-		log.Printf("Error fetching Spotify connection: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch connection"})
-		return
-	}
-
-	if len(data) == 0 {
-		c.JSON(http.StatusOK, []TopArtist{})
-		return
-	}
-
-	// Parse the JSON response
-	var connections []map[string]interface{}
-	if err := json.Unmarshal(data, &connections); err != nil {
-		log.Printf("Error parsing Spotify connection: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to parse connection"})
-		return
-	}
-
-	if len(connections) == 0 {
-		c.JSON(http.StatusOK, []TopArtist{})
-		return
-	}
-
-	accessToken, ok := connections[0]["access_token"].(string)
-	if !ok {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Invalid access token"})
-		return
-	}
-
-	refreshToken, _ := connections[0]["refresh_token"].(string)
-
-	var expiresAt time.Time
-	if expiresAtStr, ok := connections[0]["expires_at"].(string); ok {
-		expiresAt, _ = time.Parse(time.RFC3339, expiresAtStr)
-	}
-
-	// Check if token is expired or expiring soon, and refresh if needed
-	if !expiresAt.IsZero() && time.Now().After(expiresAt.Add(-5*time.Minute)) {
-		log.Printf("Token for user %s is expired or expiring soon, refreshing...", userIDStr)
-
-		tempClient := NewSpotifyClient(accessToken)
-		newToken, err := tempClient.RefreshToken(refreshToken)
-		if err != nil {
-			log.Printf("Error refreshing token for user %s: %v", userIDStr, err)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to refresh access token"})
+		if errors.Is(err, ErrNoSpotifyConnection) {
+			c.JSON(http.StatusOK, []TopArtist{})
 			return
 		}
-
-		accessToken = newToken.AccessToken
-		newExpiresAt := time.Now().Add(time.Duration(newToken.ExpiresIn) * time.Second)
-
-		// Update the database with the new token
-		updateData := map[string]interface{}{
-			"access_token": newToken.AccessToken,
-			"expires_at":   newExpiresAt.Format(time.RFC3339),
-		}
-		if newToken.RefreshToken != "" {
-			updateData["refresh_token"] = newToken.RefreshToken
-		}
-
-		_, _, err = client.From("spotify_connections").
-			Update(updateData, "", "").
-			Eq("user_id", userIDStr).
-			Execute()
-		if err != nil {
-			log.Printf("Warning: failed to persist refreshed token for user %s: %v", userIDStr, err)
-		} else {
-			log.Printf("Successfully refreshed token for user %s", userIDStr)
-		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to load Spotify connection"})
+		return
 	}
 
-	// Get top artists from Spotify API
-	spotifyClient := NewSpotifyClient(accessToken)
-	artists, err := spotifyClient.GetTopArtists(timeRange)
+	artists, err := spotifyClient.GetTopArtists(validTimeRange(c.DefaultQuery("time_range", "medium_term")))
 	if err != nil {
-		log.Printf("Error getting top artists: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get top artists"})
+		if _, ok := err.(*SpotifyRateLimitError); ok {
+			c.JSON(http.StatusOK, []TopArtist{})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch top artists"})
 		return
 	}
 
@@ -485,105 +229,70 @@ func handleTopArtists(c *gin.Context) {
 }
 
 func handleOnRepeat(c *gin.Context) {
-	userID, exists := c.Get("user_id")
+	userID, exists := auth.GetUserFromContext(c)
 	if !exists {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
 		return
 	}
 
-	userIDStr, ok := userID.(string)
-	if !ok {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Invalid user ID"})
-		return
-	}
-
-	// Get access token and refresh token from database
-	client := supabase.GetClient()
-	data, _, err := client.From("spotify_connections").
-		Select("access_token,refresh_token,expires_at", "", false).
-		Eq("user_id", userIDStr).
-		Execute()
-
+	spotifyClient, _, err := GetAuthorizedClient(userID)
 	if err != nil {
-		log.Printf("Error fetching Spotify connection: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch connection"})
-		return
-	}
-
-	if len(data) == 0 {
-		c.JSON(http.StatusOK, []PlaylistTrack{})
-		return
-	}
-
-	// Parse the JSON response
-	var connections []map[string]interface{}
-	if err := json.Unmarshal(data, &connections); err != nil {
-		log.Printf("Error parsing Spotify connection: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to parse connection"})
-		return
-	}
-
-	if len(connections) == 0 {
-		c.JSON(http.StatusOK, []PlaylistTrack{})
-		return
-	}
-
-	accessToken, ok := connections[0]["access_token"].(string)
-	if !ok {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Invalid access token"})
-		return
-	}
-
-	refreshToken, _ := connections[0]["refresh_token"].(string)
-
-	var expiresAt time.Time
-	if expiresAtStr, ok := connections[0]["expires_at"].(string); ok {
-		expiresAt, _ = time.Parse(time.RFC3339, expiresAtStr)
-	}
-
-	// Check if token is expired or expiring soon, and refresh if needed
-	if !expiresAt.IsZero() && time.Now().After(expiresAt.Add(-5*time.Minute)) {
-		log.Printf("Token for user %s is expired or expiring soon, refreshing...", userIDStr)
-
-		tempClient := NewSpotifyClient(accessToken)
-		newToken, err := tempClient.RefreshToken(refreshToken)
-		if err != nil {
-			log.Printf("Error refreshing token for user %s: %v", userIDStr, err)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to refresh access token"})
+		if errors.Is(err, ErrNoSpotifyConnection) {
+			c.JSON(http.StatusOK, []PlaylistTrack{})
 			return
 		}
-
-		accessToken = newToken.AccessToken
-		newExpiresAt := time.Now().Add(time.Duration(newToken.ExpiresIn) * time.Second)
-
-		// Update the database with the new token
-		updateData := map[string]interface{}{
-			"access_token": newToken.AccessToken,
-			"expires_at":   newExpiresAt.Format(time.RFC3339),
-		}
-		if newToken.RefreshToken != "" {
-			updateData["refresh_token"] = newToken.RefreshToken
-		}
-
-		_, _, err = client.From("spotify_connections").
-			Update(updateData, "", "").
-			Eq("user_id", userIDStr).
-			Execute()
-		if err != nil {
-			log.Printf("Warning: failed to persist refreshed token for user %s: %v", userIDStr, err)
-		} else {
-			log.Printf("Successfully refreshed token for user %s", userIDStr)
-		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to load Spotify connection"})
+		return
 	}
 
-	// Get tracks from "On Repeat" playlist
-	spotifyClient := NewSpotifyClient(accessToken)
 	tracks, err := spotifyClient.GetOnRepeatTracks()
 	if err != nil {
-		log.Printf("Error getting on repeat tracks: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get on repeat tracks"})
+		if _, ok := err.(*SpotifyRateLimitError); ok {
+			c.JSON(http.StatusOK, []PlaylistTrack{})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch on repeat tracks"})
 		return
 	}
 
 	c.JSON(http.StatusOK, tracks)
+}
+
+func handleRecommendations(c *gin.Context) {
+	userID, exists := auth.GetUserFromContext(c)
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
+		return
+	}
+
+	spotifyClient, _, err := GetAuthorizedClient(userID)
+	if err != nil {
+		if errors.Is(err, ErrNoSpotifyConnection) {
+			c.JSON(http.StatusOK, []PlaylistTrack{})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to load Spotify connection"})
+		return
+	}
+
+	tracks, err := spotifyClient.GetRecommendedTracks()
+	if err != nil {
+		if _, ok := err.(*SpotifyRateLimitError); ok {
+			c.JSON(http.StatusOK, []PlaylistTrack{})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch recommendations"})
+		return
+	}
+
+	c.JSON(http.StatusOK, tracks)
+}
+
+func validTimeRange(value string) string {
+	switch value {
+	case "short_term", "medium_term", "long_term":
+		return value
+	default:
+		return "medium_term"
+	}
 }

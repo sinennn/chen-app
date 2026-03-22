@@ -32,10 +32,9 @@ func handleSpotifyAPIError(resp *http.Response, endpoint string) error {
 			Endpoint:   endpoint,
 		}
 	case 429:
-		return &SpotifyError{
-			StatusCode: resp.StatusCode,
-			Message:    "Rate limit exceeded",
-			Endpoint:   endpoint,
+		retryAfter := getRetryAfter(resp)
+		return &SpotifyRateLimitError{
+			RetryAfter: retryAfter,
 		}
 	case 500, 502, 503:
 		return &SpotifyError{
@@ -52,10 +51,19 @@ func handleSpotifyAPIError(resp *http.Response, endpoint string) error {
 	}
 }
 
+func isTokenExpiredError(err error) bool {
+	if spotifyErr, ok := err.(*SpotifyError); ok {
+		return spotifyErr.StatusCode == 401
+	}
+	return false
+}
+
 func isRetryableError(err error) bool {
 	if spotifyErr, ok := err.(*SpotifyError); ok {
-		// Retry on server errors and rate limits
-		return spotifyErr.StatusCode >= 500 || spotifyErr.StatusCode == 429
+		return spotifyErr.StatusCode >= 500
+	}
+	if _, ok := err.(*SpotifyRateLimitError); ok {
+		return false
 	}
 	return false
 }
@@ -64,7 +72,7 @@ func getRetryAfter(resp *http.Response) time.Duration {
 	if resp == nil {
 		return 0
 	}
-	
+
 	retryAfter := resp.Header.Get("Retry-After")
 	if retryAfter != "" {
 		if seconds, err := strconv.Atoi(retryAfter); err == nil {
@@ -76,32 +84,23 @@ func getRetryAfter(resp *http.Response) time.Duration {
 
 func retryWithBackoff(fn func() error) error {
 	var lastErr error
-	
+
 	for attempt := 0; attempt < 3; attempt++ {
 		if attempt > 0 {
-			// Exponential backoff: 1s, 2s, 4s
 			backoffDuration := time.Duration(1<<uint(attempt-1)) * time.Second
 			time.Sleep(backoffDuration)
 		}
-		
+
 		if err := fn(); err != nil {
 			lastErr = err
-			
+
 			if !isRetryableError(err) {
-				// Not retryable, return immediately
 				return err
 			}
-			
-			// For 429 errors, check if we have a Retry-After header
-			if spotifyErr, ok := err.(*SpotifyError); ok && spotifyErr.StatusCode == 429 {
-				// This will be handled by the specific API call that has the response
-				continue
-			}
 		} else {
-			// Success
 			return nil
 		}
 	}
-	
+
 	return lastErr
 }

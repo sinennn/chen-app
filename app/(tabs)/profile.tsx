@@ -3,12 +3,13 @@ import { EditProfileModal } from '@/components/edit-profile-modal';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { Colors } from '@/constants/theme';
 import { useAuth } from '@/contexts/AuthContext';
-import { api } from '@/lib/api';
+import { RecommendedTrack, api } from '@/lib/api';
 import { supabase } from '@/lib/supabase';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
 import {
+  ActivityIndicator,
   Alert,
   Animated,
   Image,
@@ -107,93 +108,98 @@ function SpotifyStatusCard({ connected, loading, onReconnect }: {
   const accentColor = isConnected ? '#1DB954' : Colors.orange;
 
   return (
-    <View style={{
-      borderRadius: 20, overflow: 'hidden',
-      borderWidth: 1,
-      borderColor: isConnected ? 'rgba(29,185,84,0.25)' : 'rgba(232,100,10,0.2)',
-    }}>
-      <LinearGradient
-        colors={isConnected
-          ? ['rgba(29,185,84,0.12)', 'rgba(29,185,84,0.03)', 'transparent']
-          : ['rgba(232,100,10,0.15)', 'rgba(232,100,10,0.03)', 'transparent']}
-        start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
-        style={{ padding: 16 }}
-      >
-        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-          {/* Spotify badge */}
-          <View style={{
-            width: 44, height: 44, borderRadius: 13,
-            backgroundColor: '#1DB954',
-            alignItems: 'center', justifyContent: 'center',
-            marginRight: 14,
-            shadowColor: '#1DB954',
-            shadowOffset: { width: 0, height: 4 },
-            shadowOpacity: 0.4, shadowRadius: 8,
-          }}>
-            <Text style={{ fontSize: 20 }}>♫</Text>
-          </View>
+    
+    // <View style={{
+    //   borderRadius: 20, overflow: 'hidden',
+    //   borderWidth: 1,
+    //   borderColor: isConnected ? 'rgba(29,185,84,0.25)' : 'rgba(232,100,10,0.2)',
+    // }}>
+    //   <LinearGradient
+    //     colors={isConnected
+    //       ? ['rgba(29,185,84,0.12)', 'rgba(29,185,84,0.03)', 'transparent']
+    //       : ['rgba(232,100,10,0.15)', 'rgba(232,100,10,0.03)', 'transparent']}
+    //     start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
+    //     style={{ padding: 16 }}
+    //   >
+    //     <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+          
+    //       <View style={{
+    //         width: 44, height: 44, borderRadius: 13,
+    //         backgroundColor: '#1DB954',
+    //         alignItems: 'center', justifyContent: 'center',
+    //         marginRight: 14,
+    //         shadowColor: '#1DB954',
+    //         shadowOffset: { width: 0, height: 4 },
+    //         shadowOpacity: 0.4, shadowRadius: 8,
+    //       }}>
+    //         <Text style={{ fontSize: 20 }}>♫</Text>
+    //       </View>
 
-          <View style={{ flex: 1 }}>
-            <Text style={{ color: Colors.textPrimary, fontSize: 15, fontWeight: '700', marginBottom: 2 }}>
-              Spotify
-            </Text>
-            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-              <View style={{
-                width: 6, height: 6, borderRadius: 3,
-                backgroundColor: isConnected ? '#1DB954' : Colors.textMuted,
-                marginRight: 6,
-              }} />
-              <Text style={{ color: isConnected ? '#1DB954' : Colors.textMuted, fontSize: 12, fontWeight: '500' }}>
-                {loading ? 'Checking...' : isConnected ? 'Connected' : 'Not connected'}
-              </Text>
-            </View>
-          </View>
+    //       <View style={{ flex: 1 }}>
+    //         <Text style={{ color: Colors.textPrimary, fontSize: 15, fontWeight: '700', marginBottom: 2 }}>
+    //           Spotify
+    //         </Text>
+    //         <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+    //           <View style={{
+    //             width: 6, height: 6, borderRadius: 3,
+    //             backgroundColor: isConnected ? '#1DB954' : Colors.textMuted,
+    //             marginRight: 6,
+    //           }} />
+    //           <Text style={{ color: isConnected ? '#1DB954' : Colors.textMuted, fontSize: 12, fontWeight: '500' }}>
+    //             {loading ? 'Checking...' : isConnected ? 'Connected' : 'Not connected'}
+    //           </Text>
+    //         </View>
+    //       </View>
 
-          {isConnected && (
-            <View style={{
-              paddingHorizontal: 10, paddingVertical: 5, borderRadius: 20,
-              backgroundColor: 'rgba(29,185,84,0.12)',
-              borderWidth: 1, borderColor: 'rgba(29,185,84,0.25)',
-            }}>
-              <Text style={{ color: '#1DB954', fontSize: 11, fontWeight: '700' }}>Active</Text>
-            </View>
-          )}
-        </View>
+    //       {isConnected && (
+    //         <View style={{
+    //           paddingHorizontal: 10, paddingVertical: 5, borderRadius: 20,
+    //           backgroundColor: 'rgba(29,185,84,0.12)',
+    //           borderWidth: 1, borderColor: 'rgba(29,185,84,0.25)',
+    //         }}>
+    //           <Text style={{ color: '#1DB954', fontSize: 11, fontWeight: '700' }}>Active</Text>
+    //         </View>
+    //       )}
+    //     </View>
 
-        {!isConnected && !loading && (
-          <Pressable
-            onPress={onReconnect}
-            style={{
-              marginTop: 14,
-              backgroundColor: '#1DB954',
-              borderRadius: 13, paddingVertical: 12,
-              alignItems: 'center',
-              shadowColor: '#1DB954',
-              shadowOffset: { width: 0, height: 4 },
-              shadowOpacity: 0.3, shadowRadius: 10,
-            }}
-          >
-            <Text style={{ color: '#fff', fontSize: 14, fontWeight: '700' }}>
-              Reconnect Spotify
-            </Text>
-          </Pressable>
-        )}
-      </LinearGradient>
-    </View>
+    //     {!isConnected && !loading && (
+    //       <Pressable
+    //         onPress={onReconnect}
+    //         style={{
+    //           marginTop: 14,
+    //           backgroundColor: '#1DB954',
+    //           borderRadius: 13, paddingVertical: 12,
+    //           alignItems: 'center',
+    //           shadowColor: '#1DB954',
+    //           shadowOffset: { width: 0, height: 4 },
+    //           shadowOpacity: 0.3, shadowRadius: 10,
+    //         }}
+    //       >
+    //         <Text style={{ color: '#fff', fontSize: 14, fontWeight: '700' }}>
+    //           Reconnect Spotify
+    //         </Text>
+    //       </Pressable>
+    //     )}
+    //   </LinearGradient>
+    // </View>
+
+    <View></View>
   );
 }
 
 // ── Screen ────────────────────────────────────────────────────────────────────
 
 export default function ProfileScreen() {
-  const { user, profile, signOut, refreshProfile } = useAuth();
+  const { user, profile, signOut, refreshProfile, loading: authLoading } = useAuth();
   const [spotifyConnected, setSpotifyConnected] = useState<boolean | null>(null);
   const [nowPlaying, setNowPlaying] = useState<any>(null);
   const [recentTracks, setRecentTracks] = useState<any[]>([]);
   const [topArtists, setTopArtists] = useState<any[]>([]);
   const [topTracks, setTopTracks] = useState<any[]>([]);
+  const [recommendedTracks, setRecommendedTracks] = useState<RecommendedTrack[]>([]);
   const [friends, setFriends] = useState<any[]>([]);
   const [stats, setStats] = useState({ minutesListened: 0, artistsPlayed: 0, topGenre: '--' });
+  const [statsLoading, setStatsLoading] = useState(true);
   const [editProfileVisible, setEditProfileVisible] = useState(false);
 
   const avatarScale = useRef(new Animated.Value(0.85)).current;
@@ -216,55 +222,131 @@ export default function ProfileScreen() {
   };
 
   const fetchProfileData = async () => {
-    try {
-      await checkSpotifyConnection();
-      const [nowPlayingData, recentData, friendsData, statsData, topArtistsData, topTracksData] = await Promise.all([
-        api.spotify.nowPlaying().catch(() => null),
-        api.spotify.recent().catch(() => []),
-        api.friends.list().catch(() => []),
-        api.profile.stats().catch(() => null),
-        api.profile.topArtists().catch(() => []),
-        api.profile.topTracks().catch(() => []),
-      ]);
-
-      setNowPlaying(nowPlayingData);
-      setRecentTracks(recentData.slice(0, 6));
-      setFriends(friendsData.slice(0, 3));
-      setTopTracks(topTracksData || []);
-      console.log('Top tracks data received:', topTracksData);
-      console.log('Top tracks length:', topTracksData?.length);
-
-      setStats(statsData || { minutesListened: 0, artistsPlayed: 0, topGenre: '--' });
-      console.log('Stats data received:', statsData);
-
-      const normalised = (topArtistsData || []).map((a: any) => ({
-        ...a, imageUrl: a.image_url || a.imageUrl || null,
-      }));
-      setTopArtists(normalised);
-    } catch (e) {
-      console.error('fetchProfileData error:', e);
+    if (authLoading || !user) {
+      return;
     }
+
+    checkSpotifyConnection();
+
+    api.spotify.nowPlaying()
+      .then((data) => setNowPlaying(data))
+      .catch(() => setNowPlaying(null));
+
+    api.spotify.recent()
+      .then((data) => setRecentTracks((data || []).slice(0, 10)))
+      .catch(() => setRecentTracks([]));
+
+    api.friends.list()
+      .then((data) => setFriends((data || []).slice(0, 3)))
+      .catch(() => setFriends([]));
+
+    setStatsLoading(true);
+    api.profile.stats()
+      .then((data) => setStats(data || { minutesListened: 0, artistsPlayed: 0, topGenre: '--' }))
+      .catch(() => setStats({ minutesListened: 0, artistsPlayed: 0, topGenre: '--' }))
+      .finally(() => setStatsLoading(false));
+
+    api.profile.topArtists()
+      .then((data) => {
+        const normalised = (data || []).map((a: any) => ({
+        ...a, imageUrl: a.image_url || a.imageUrl || null,
+        }));
+        setTopArtists(normalised);
+      })
+      .catch(() => setTopArtists([]));
+
+    api.profile.topTracks()
+      .then((data) => setTopTracks(data || []))
+      .catch(() => setTopTracks([]));
+
+    api.spotify.recommendations()
+      .then((data) => setRecommendedTracks(data || []))
+      .catch(() => setRecommendedTracks([]));
   };
 
-  // Reconnect: sign out of Spotify in Supabase then navigate to music-services
   const handleReconnectSpotify = async () => {
     try {
       const { data: { user: authUser } } = await supabase.auth.getUser();
-      if (authUser) {
-        await supabase.from('spotify_connections').delete().eq('user_id', authUser.id);
+      if (!authUser) {
+        Alert.alert('Error', 'No authenticated user found');
+        return;
       }
-    } catch (e) {
-      console.error('Error clearing Spotify connection:', e);
+
+      const { data: userData, error: userError } = await supabase
+        .from('users')
+        .select('avatar_id, username')
+        .eq('id', authUser.id)
+        .single();
+      if (userError) {
+        Alert.alert('Error', 'Failed to prepare Spotify reconnection');
+        return;
+      }
+
+      const { error: deleteError } = await supabase.from('spotify_connections').delete().eq('user_id', authUser.id);
+      if (deleteError) {
+        Alert.alert('Error', 'Failed to clear existing Spotify connection');
+        return;
+      }
+
+      const params: any = {};
+      if (userData?.avatar_id) params.avatarSeed = userData.avatar_id;
+      if (userData?.username) params.username = userData.username;
+
+      router.push({ pathname: '/(auth)/music-services' as any, params });
+    } catch {
+      Alert.alert('Error', 'Failed to reconnect Spotify. Please try again.');
     }
-    // Navigate to music-services — works from any stack context
-    router.push('/(auth)/music-services' as any);
   };
 
   useEffect(() => {
+    if (authLoading || !user) {
+      return;
+    }
+
     fetchProfileData();
-    const interval = setInterval(fetchProfileData, 30000);
-    return () => clearInterval(interval);
-  }, []);
+  }, [authLoading, user]);
+
+  useEffect(() => {
+    if (!user?.id) {
+      return;
+    }
+
+    const channel = supabase
+      .channel(`profile_now_playing_${user.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'listening_activity',
+          filter: `user_id=eq.${user.id}`,
+        },
+        (payload) => {
+          const activity = payload.new as any;
+          if (!activity) {
+            return;
+          }
+
+          if (activity.is_playing) {
+            setNowPlaying({
+              track_name: activity.track_name,
+              artist_name: activity.artist_name,
+              album_name: activity.album_name,
+              album_art_url: activity.album_art_url,
+              is_playing: true,
+            });
+            return;
+          }
+
+          setNowPlaying(null);
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [user?.id]);
 
   useEffect(() => {
     Animated.parallel([
@@ -387,9 +469,15 @@ export default function ProfileScreen() {
                 { value: stats.topGenre || '--', label: 'top genre' },
               ].map((stat, i) => (
                 <Card key={i} style={{ flex: 1, alignItems: 'center', paddingVertical: 18, paddingHorizontal: 8 }}>
-                  <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6} style={{ color: Colors.orange, fontSize: 22, fontWeight: '800', marginBottom: 4, width: '100%', textAlign: 'center' }}>
-                    {stat.value}
-                  </Text>
+                  {statsLoading || stat.value === '--' ? (
+                    <View style={{ height: 30, justifyContent: 'center', marginBottom: 4 }}>
+                      <ActivityIndicator size="small" color={Colors.orange} />
+                    </View>
+                  ) : (
+                    <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6} style={{ color: Colors.orange, fontSize: 22, fontWeight: '800', marginBottom: 4, width: '100%', textAlign: 'center' }}>
+                      {stat.value}
+                    </Text>
+                  )}
                   <Text style={{ color: Colors.textMuted, fontSize: 11, textAlign: 'center' }}>{stat.label}</Text>
                 </Card>
               ))}
@@ -433,10 +521,10 @@ export default function ProfileScreen() {
               {topTracks.length > 0 ? topTracks.slice(0, 3).map((track, i) => (
                 <Pressable key={i} style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 11, borderBottomWidth: i < 2 ? 1 : 0, borderBottomColor: 'rgba(255,255,255,0.06)' }}>
                   <Text style={{ color: Colors.textMuted, fontSize: 13, fontWeight: '700', width: 20, marginRight: 10 }}>{i + 1}</Text>
-                  <Image source={{ uri: track.album?.images?.[0]?.url || track.album_art_url || track.ImageURL }} style={{ width: 46, height: 46, borderRadius: 10, marginRight: 12 }} />
+                  <Image source={{ uri: track.imageUrl || track.image_url || track.album_art_url }} style={{ width: 46, height: 46, borderRadius: 10, marginRight: 12 }} />
                   <View style={{ flex: 1 }}>
-                    <Text style={{ color: Colors.textPrimary, fontSize: 14, fontWeight: '600', marginBottom: 2 }}>{track.name || track.Name}</Text>
-                    <Text style={{ color: Colors.textSecondary, fontSize: 12 }}>{track.artists?.[0]?.name || track.artist || track.Artist}</Text>
+                    <Text style={{ color: Colors.textPrimary, fontSize: 14, fontWeight: '600', marginBottom: 2 }}>{track.name}</Text>
+                    <Text style={{ color: Colors.textSecondary, fontSize: 12 }}>{track.artist}</Text>
                   </View>
                   <IconSymbol name="play.fill" size={14} color="rgba(232,100,10,0.5)" />
                 </Pressable>
@@ -451,8 +539,14 @@ export default function ProfileScreen() {
               {recentTracks.length > 0 ? (
                 <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginHorizontal: -4 }}>
                   {recentTracks.map((track, i) => (
-                    <Pressable key={i} style={{ marginHorizontal: 5 }}>
+                    <Pressable key={i} style={{ marginHorizontal: 5, width: 78 }}>
                       <Image source={{ uri: track.album_art_url }} style={{ width: 78, height: 78, borderRadius: 14, borderWidth: 1, borderColor: 'rgba(232,100,10,0.1)' }} />
+                      <Text
+                        numberOfLines={1}
+                        style={{ color: Colors.orange, fontSize: 11, fontWeight: '700', marginTop: 8, textAlign: 'center' }}
+                      >
+                        {track.track_name}
+                      </Text>
                     </Pressable>
                   ))}
                 </ScrollView>
@@ -464,23 +558,23 @@ export default function ProfileScreen() {
             </View>
           </FadeSlide>
 
-          {/* On Repeat */}
+          {/* Recommended Tracks */}
           <FadeSlide delay={460}>
             <View>
-              <SectionLabel>On Repeat</SectionLabel>
-              {recentTracks.length >= 3 ? (
+              <SectionLabel>Recommended Tracks</SectionLabel>
+              {recommendedTracks.length >= 3 ? (
                 <View style={{ flexDirection: 'row', gap: 10 }}>
-                  {recentTracks.slice(0, 3).map((track, i) => (
+                  {recommendedTracks.slice(0, 3).map((track, i) => (
                     <Card key={i} style={{ flex: 1, alignItems: 'center', padding: 12 }}>
-                      <Image source={{ uri: track.album_art_url }} style={{ width: 56, height: 56, borderRadius: 12, marginBottom: 10 }} />
-                      <Text numberOfLines={1} style={{ color: Colors.textPrimary, fontSize: 11, fontWeight: '700', textAlign: 'center', marginBottom: 2 }}>{track.track_name}</Text>
-                      <Text numberOfLines={1} style={{ color: Colors.textMuted, fontSize: 10, textAlign: 'center' }}>{track.artist_name}</Text>
+                      <Image source={{ uri: track.album_art }} style={{ width: 56, height: 56, borderRadius: 12, marginBottom: 10 }} />
+                      <Text numberOfLines={1} style={{ color: Colors.textPrimary, fontSize: 11, fontWeight: '700', textAlign: 'center', marginBottom: 2 }}>{track.name}</Text>
+                      <Text numberOfLines={1} style={{ color: Colors.textMuted, fontSize: 10, textAlign: 'center' }}>{track.artist}</Text>
                     </Card>
                   ))}
                 </View>
               ) : (
                 <View style={{ height: 100, borderRadius: 20, backgroundColor: 'rgba(255,255,255,0.03)', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: 'rgba(232,100,10,0.08)' }}>
-                  <Text style={{ color: Colors.textMuted, fontSize: 13 }}>Nothing on repeat yet</Text>
+                  <Text style={{ color: Colors.textMuted, fontSize: 13 }}>No recommendations yet</Text>
                 </View>
               )}
             </View>

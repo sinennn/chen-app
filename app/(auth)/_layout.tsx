@@ -25,24 +25,24 @@ export default function AuthLayout() {
 
     if (user && profile !== null) {
       hasRedirected.current = true;
-      
-      if (profile.avatar_id && profile.username) {
-        console.log('AuthLayout: User has completed onboarding, navigating to tabs');
+
+      if (profile.username && profile.avatar_id) {
         router.replace('/(tabs)');
-      } else if (profile.username) {
-        console.log('AuthLayout: User has username but no avatar, navigating to avatar selection');
-        router.replace('/(auth)/avatar');
       } else {
-        console.log('AuthLayout: User needs username, navigating to username selection');
+        if (profile.username) {
+          router.replace({
+            pathname: '/(auth)/avatar',
+            params: { username: profile.username },
+          });
+          return;
+        }
+
         router.replace('/(auth)/username');
       }
     }
   }, [user, profile, loading, router]);
 
-  console.log('AuthLayout: Rendering - user:', !!user, 'profile:', !!profile, 'loading:', loading, 'hasRedirected:', hasRedirected.current);
-
   if (loading) {
-    console.log('AuthLayout: Still loading, showing spinner');
     return (
       <View style={{ flex: 1, backgroundColor: Colors.bg, alignItems: 'center', justifyContent: 'center' }}>
         <ActivityIndicator size="large" color={Colors.orange} />
@@ -51,7 +51,6 @@ export default function AuthLayout() {
   }
 
   if (user && profile === null) {
-    console.log('AuthLayout: Profile is null, waiting for profile data');
     return (
       <View style={{ flex: 1, backgroundColor: Colors.bg, alignItems: 'center', justifyContent: 'center' }}>
         <ActivityIndicator size="large" color={Colors.orange} />
@@ -59,6 +58,5 @@ export default function AuthLayout() {
     );
   }
 
-  console.log('AuthLayout: Showing auth stack');
   return <Stack screenOptions={{ headerShown: false }} />;
 }

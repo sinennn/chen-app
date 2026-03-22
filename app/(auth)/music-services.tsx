@@ -1,5 +1,4 @@
 //@ts-nocheck
-//@ts-nocheck
 import * as AuthSession from 'expo-auth-session';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import * as WebBrowser from 'expo-web-browser';
@@ -38,6 +37,8 @@ export default function MusicServicesScreen() {
   const router = useRouter();
   const { avatarSeed, username } = useLocalSearchParams<{ avatarSeed: string; username: string }>();
   const [loading, setLoading] = useState(false);
+  const normalizedUsername = typeof username === 'string' ? username.trim().toLowerCase() : '';
+  const normalizedAvatarSeed = typeof avatarSeed === 'string' ? avatarSeed : '';
 
   const redirectUri = AuthSession.makeRedirectUri({
     scheme: 'com.quinnn.chen',
@@ -54,6 +55,12 @@ export default function MusicServicesScreen() {
     },
     discovery
   );
+
+  useEffect(() => {
+    if (normalizedAvatarSeed && !normalizedUsername) {
+      router.replace('/(auth)/username');
+    }
+  }, [normalizedAvatarSeed, normalizedUsername, router]);
 
   useEffect(() => {
     if (response?.type === 'success') {
@@ -106,10 +113,10 @@ export default function MusicServicesScreen() {
       if (upsertError) throw upsertError;
 
       // Save avatar seed and username
-      if (avatarSeed || username) {
+      if (normalizedAvatarSeed || normalizedUsername) {
         const updateData: any = {};
-        if (avatarSeed) updateData.avatar_id = avatarSeed;
-        if (username) updateData.username = username;
+        if (normalizedAvatarSeed) updateData.avatar_id = normalizedAvatarSeed;
+        if (normalizedUsername) updateData.username = normalizedUsername;
         
         await supabase.from('users').update(updateData).eq('id', user.id);
       }
@@ -134,10 +141,20 @@ export default function MusicServicesScreen() {
 
   const handleSkip = async () => {
     try {
-      if (avatarSeed) {
+      if (normalizedAvatarSeed && !normalizedUsername) {
+        router.replace('/(auth)/username');
+        return;
+      }
+
+      if (normalizedAvatarSeed || normalizedUsername) {
         const { data: { user } } = await supabase.auth.getUser();
         if (user) {
-          await supabase.from('users').update({ avatar_id: avatarSeed }).eq('id', user.id);
+          const updateData: Record<string, string> = {};
+
+          if (normalizedAvatarSeed) updateData.avatar_id = normalizedAvatarSeed;
+          if (normalizedUsername) updateData.username = normalizedUsername;
+
+          await supabase.from('users').update(updateData).eq('id', user.id);
         }
       }
       router.replace('/(tabs)');

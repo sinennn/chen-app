@@ -1,15 +1,13 @@
 package profile
 
 import (
+	"errors"
+	"net/http"
+	"strings"
+	"time"
+
 	"chen/internal/auth"
 	"chen/internal/spotify"
-	"chen/pkg/supabase"
-	"encoding/json"
-	"fmt"
-	"io"
-	"log"
-	"net/http"
-	"time"
 
 	"github.com/gin-gonic/gin"
 )
@@ -46,105 +44,43 @@ func getStats(c *gin.Context) {
 		return
 	}
 
-	client := supabase.GetClient()
-	if client == nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Database connection failed"})
-		return
-	}
+	stats := ProfileStats{TopGenre: "--"}
 
-	// Get user's Spotify access token
-	spotifyData, _, err := client.From("spotify_connections").
-		Select("access_token", "", false).
-		Eq("user_id", userID).
-		Execute()
+	spotifyClient, _, err := spotify.GetAuthorizedClient(userID)
+	if err == nil {
+		if recentlyPlayed, recentErr := spotifyClient.GetRecentlyPlayed(); recentErr == nil {
+			weekAgo := time.Now().Add(-7 * 24 * time.Hour)
+			artistsSeen := make(map[string]struct{})
+			totalDurationMs := 0
+			for _, track := range recentlyPlayed {
+				if track.PlayedAt == "" {
+					continue
+				}
 
-	if err != nil {
-		log.Printf("Error fetching Spotify connection: %v", err)
-		c.JSON(http.StatusOK, ProfileStats{
-			MinutesListened: 0,
-			ArtistsPlayed:   0,
-			TopGenre:        "--",
-		})
-		return
-	}
+				playedAt, parseErr := time.Parse(time.RFC3339, track.PlayedAt)
+				if parseErr != nil || playedAt.Before(weekAgo) {
+					continue
+				}
 
-	var connections []map[string]interface{}
-	if err := json.Unmarshal(spotifyData, &connections); err != nil || len(connections) == 0 {
-		log.Printf("No Spotify connection found for user %s", userID)
-		c.JSON(http.StatusOK, ProfileStats{
-			MinutesListened: 0,
-			ArtistsPlayed:   0,
-			TopGenre:        "--",
-		})
-		return
-	}
-
-	accessToken, ok := connections[0]["access_token"].(string)
-	if !ok {
-		log.Printf("Invalid access token for user %s", userID)
-		c.JSON(http.StatusOK, ProfileStats{
-			MinutesListened: 0,
-			ArtistsPlayed:   0,
-			TopGenre:        "--",
-		})
-		return
-	}
-
-	// Get data from Spotify API
-	spotifyClient := spotify.NewSpotifyClient(accessToken)
-
-	// Get top artists for genre analysis
-	topArtists, err := spotifyClient.GetTopArtists("short_term")
-	if err != nil {
-		log.Printf("Error getting top artists for user %s: %v", userID, err)
-		c.JSON(http.StatusOK, ProfileStats{
-			MinutesListened: 0,
-			ArtistsPlayed:   0,
-			TopGenre:        "--",
-		})
-		return
-	}
-
-	// Calculate stats from Spotify data
-	artistsPlayed := len(topArtists)
-	minutesListened := 0 // We'll estimate based on recent tracks
-	topGenre := "Various"
-
-	// Count genres from top artists
-	genreCounts := make(map[string]int)
-	for _, artist := range topArtists {
-		log.Printf("Artist: %s, Genres: %v", artist.Name, artist.Genres)
-		for _, genre := range artist.Genres {
-			if genre != "" {
-				genreCounts[genre]++
+				if track.Artist != "" {
+					artistsSeen[track.Artist] = struct{}{}
+				}
+				totalDurationMs += track.DurationMs
 			}
+
+			stats.MinutesListened = totalDurationMs / 60000
+			stats.ArtistsPlayed = len(artistsSeen)
 		}
-	}
 
-	// Find the most common genre
-	maxCount := 0
-	for genre, count := range genreCounts {
-		if count > maxCount {
-			maxCount = count
-			topGenre = genre
+		topGenre := deriveTopGenre(spotifyClient)
+		if topGenre != "" {
+			stats.TopGenre = topGenre
 		}
+	} else if !errors.Is(err, spotify.ErrNoSpotifyConnection) {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to load Spotify connection"})
+		return
 	}
 
-	// Get recent tracks to estimate minutes listened
-	recentTracks, err := spotifyClient.GetRecentlyPlayed()
-	if err == nil && len(recentTracks) > 0 {
-		// Estimate minutes from recent tracks (last 50 tracks)
-		// Assuming average track length of 3.5 minutes
-		minutesListened = len(recentTracks) * 3
-	}
-
-	stats := ProfileStats{
-		MinutesListened: minutesListened,
-		ArtistsPlayed:   artistsPlayed,
-		TopGenre:        topGenre,
-	}
-
-	log.Printf("Returning stats for user %s: %+v", userID, stats)
 	c.JSON(http.StatusOK, stats)
 }
 
@@ -155,63 +91,39 @@ func getTopArtists(c *gin.Context) {
 		return
 	}
 
-	client := supabase.GetClient()
-	if client == nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Database connection failed"})
-		return
-	}
-
-	// Get user's Spotify access token
-	spotifyData, _, err := client.From("spotify_connections").
-		Select("access_token", "", false).
-		Eq("user_id", userID).
-		Execute()
-
+	spotifyClient, _, err := spotify.GetAuthorizedClient(userID)
 	if err != nil {
-		log.Printf("Error fetching Spotify connection: %v", err)
-		c.JSON(http.StatusOK, []ProfileTopArtist{})
+		if errors.Is(err, spotify.ErrNoSpotifyConnection) {
+			c.JSON(http.StatusOK, []ProfileTopArtist{})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to load Spotify connection"})
 		return
 	}
 
-	var connections []map[string]interface{}
-	if err := json.Unmarshal(spotifyData, &connections); err != nil || len(connections) == 0 {
-		log.Printf("No Spotify connection found for user %s", userID)
-		c.JSON(http.StatusOK, []ProfileTopArtist{})
-		return
-	}
-
-	accessToken, ok := connections[0]["access_token"].(string)
-	if !ok {
-		log.Printf("Invalid access token for user %s", userID)
-		c.JSON(http.StatusOK, []ProfileTopArtist{})
-		return
-	}
-
-	// Get top artists from Spotify API
-	spotifyClient := spotify.NewSpotifyClient(accessToken)
-	spotifyArtists, err := spotifyClient.GetTopArtists("short_term")
+	artists, err := spotifyClient.GetTopArtists("short_term")
 	if err != nil {
-		log.Printf("Error getting top artists from Spotify for user %s: %v", userID, err)
-		c.JSON(http.StatusOK, []ProfileTopArtist{})
+		if _, ok := err.(*spotify.SpotifyRateLimitError); ok {
+			c.JSON(http.StatusOK, []ProfileTopArtist{})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch top artists"})
 		return
 	}
 
-	// Convert Spotify artists to our format
-	var topArtists []ProfileTopArtist
-	for i, artist := range spotifyArtists {
-		if i >= 10 { // Limit to top 10
+	result := make([]ProfileTopArtist, 0, min(len(artists), 10))
+	for _, artist := range artists {
+		if len(result) == 10 {
 			break
 		}
-
-		topArtists = append(topArtists, ProfileTopArtist{
+		result = append(result, ProfileTopArtist{
 			Name:      artist.Name,
-			PlayCount: artist.Rank, // Use rank as a proxy for play count
+			PlayCount: artist.Rank,
 			ImageURL:  artist.ImageURL,
 		})
 	}
 
-	log.Printf("Returning %d top artists for user %s", len(topArtists), userID)
-	c.JSON(http.StatusOK, topArtists)
+	c.JSON(http.StatusOK, result)
 }
 
 func getTopTracks(c *gin.Context) {
@@ -221,56 +133,162 @@ func getTopTracks(c *gin.Context) {
 		return
 	}
 
-	// Get user's Spotify access token (same pattern as getTopArtists)
-	client := supabase.GetClient()
-	spotifyData, _, err := client.From("spotify_connections").
-		Select("access_token", "", false).
-		Eq("user_id", userID).
-		Execute()
-
+	spotifyClient, _, err := spotify.GetAuthorizedClient(userID)
 	if err != nil {
-		log.Printf("Error fetching Spotify connection: %v", err)
-		c.JSON(http.StatusOK, []ProfileTopTrack{})
+		if errors.Is(err, spotify.ErrNoSpotifyConnection) {
+			c.JSON(http.StatusOK, []ProfileTopTrack{})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to load Spotify connection"})
 		return
 	}
 
-	var connections []map[string]interface{}
-	if err := json.Unmarshal(spotifyData, &connections); err != nil || len(connections) == 0 {
-		log.Printf("No Spotify connection found for user %s", userID)
-		c.JSON(http.StatusOK, []ProfileTopTrack{})
-		return
-	}
-
-	accessToken, ok := connections[0]["access_token"].(string)
-	if !ok {
-		log.Printf("Invalid access token for user %s", userID)
-		c.JSON(http.StatusOK, []ProfileTopTrack{})
-		return
-	}
-
-	// Get top tracks from Spotify API
-	spotifyClient := spotify.NewSpotifyClient(accessToken)
-	spotifyTracks, err := spotifyClient.GetTopTracks("medium_term")
+	tracks, err := spotifyClient.GetTopTracks("short_term")
 	if err != nil {
-		log.Printf("Error getting top tracks from Spotify for user %s: %v", userID, err)
-		c.JSON(http.StatusOK, []ProfileTopTrack{})
+		if _, ok := err.(*spotify.SpotifyRateLimitError); ok {
+			c.JSON(http.StatusOK, []ProfileTopTrack{})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch top tracks"})
 		return
 	}
 
-	// Convert Spotify tracks to our format
-	var topTracks []ProfileTopTrack
-	for i, track := range spotifyTracks {
-		if i >= 3 { // Limit to top 3
+	result := make([]ProfileTopTrack, 0, min(len(tracks), 3))
+	for _, track := range tracks {
+		if len(result) == 3 {
 			break
 		}
-
-		topTracks = append(topTracks, ProfileTopTrack{
-			Name:     track.Name,
-			Artist:   track.Artist,
+		result = append(result, ProfileTopTrack{
+			Name:      track.Name,
+			Artist:    track.Artist,
+			PlayCount: track.Rank,
 			ImageURL:  track.AlbumArt,
 		})
 	}
 
-	log.Printf("Returning %d top tracks for user %s", len(topTracks), userID)
-	c.JSON(http.StatusOK, topTracks)
+	c.JSON(http.StatusOK, result)
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+func formatGenre(value string) string {
+	parts := strings.Fields(value)
+	for i, part := range parts {
+		if part == "" {
+			continue
+		}
+		parts[i] = strings.ToUpper(part[:1]) + part[1:]
+	}
+	return strings.Join(parts, " ")
+}
+
+func deriveTopGenre(client *spotify.SpotifyClient) string {
+	type genreCandidate struct {
+		Name string
+		ID   string
+	}
+
+	candidateArtists := make([]genreCandidate, 0, 20)
+
+	for _, timeRange := range []string{"short_term", "medium_term", "long_term"} {
+		artists, err := client.GetTopArtists(timeRange)
+		if err != nil {
+			continue
+		}
+
+		genreCounts := make(map[string]int)
+		topGenre := ""
+		topCount := 0
+		for _, artist := range artists {
+			if artist.Name != "" {
+				candidateArtists = append(candidateArtists, genreCandidate{Name: artist.Name, ID: artist.ID})
+			}
+			for _, genre := range artist.Genres {
+				normalized := strings.ToLower(strings.TrimSpace(genre))
+				if normalized == "" {
+					continue
+				}
+
+				genreCounts[normalized]++
+				if genreCounts[normalized] > topCount {
+					topCount = genreCounts[normalized]
+					topGenre = normalized
+				}
+			}
+		}
+
+		if topGenre != "" {
+			return formatGenre(topGenre)
+		}
+	}
+
+	for _, timeRange := range []string{"short_term", "medium_term"} {
+		tracks, err := client.GetTopTracks(timeRange)
+		if err != nil {
+			continue
+		}
+		for _, track := range tracks {
+			if track.Artist != "" {
+				candidateArtists = append(candidateArtists, genreCandidate{Name: track.Artist})
+			}
+		}
+	}
+
+	recentlyPlayed, err := client.GetRecentlyPlayed()
+	if err == nil {
+		for _, track := range recentlyPlayed {
+			if track.Artist != "" {
+				candidateArtists = append(candidateArtists, genreCandidate{Name: track.Artist})
+			}
+		}
+	}
+
+	genreCounts := make(map[string]int)
+	topGenre := ""
+	topCount := 0
+	seenArtists := make(map[string]struct{})
+	for _, candidate := range candidateArtists {
+		normalizedArtist := strings.ToLower(strings.TrimSpace(candidate.Name))
+		if normalizedArtist == "" {
+			continue
+		}
+		if _, seen := seenArtists[normalizedArtist]; seen {
+			continue
+		}
+		seenArtists[normalizedArtist] = struct{}{}
+
+		genres := []string{}
+		var lookupErr error
+		if candidate.ID != "" {
+			genres, lookupErr = client.GetArtistGenresByID(candidate.ID)
+		}
+		if lookupErr != nil || len(genres) == 0 {
+			genres, lookupErr = client.GetArtistGenres(candidate.Name)
+		}
+		if lookupErr != nil {
+			continue
+		}
+		for _, genre := range genres {
+			normalizedGenre := strings.ToLower(strings.TrimSpace(genre))
+			if normalizedGenre == "" {
+				continue
+			}
+			genreCounts[normalizedGenre]++
+			if genreCounts[normalizedGenre] > topCount {
+				topCount = genreCounts[normalizedGenre]
+				topGenre = normalizedGenre
+			}
+		}
+	}
+
+	if topGenre != "" {
+		return formatGenre(topGenre)
+	}
+
+	return ""
 }

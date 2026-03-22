@@ -1,11 +1,15 @@
 package spotify
 
 import (
-	"chen/pkg/supabase"
 	"encoding/json"
+	"errors"
 	"log"
 	"sync"
 	"time"
+
+	"chen/pkg/supabase"
+
+	"github.com/supabase-community/postgrest-go"
 )
 
 type UserTrackCache struct {
@@ -34,100 +38,47 @@ func StartPoller() {
 
 func pollAllUsers() {
 	client := supabase.GetClient()
-
-	// FIX: Removed the Gt("expires_at", ...) filter.
-	// Previously, expired tokens were silently excluded — meaning once a token
-	// expired it would never be refreshed and the user would never be polled again.
-	// Now we fetch ALL connections and handle refresh inside pollUserActivity.
 	data, _, err := client.From("spotify_connections").
-		Select("user_id,access_token,refresh_token,expires_at", "", false).
+		Select("user_id", "", false).
 		Execute()
-
 	if err != nil {
 		log.Printf("Error fetching Spotify connections: %v", err)
 		return
 	}
 
-	var connections []map[string]interface{}
+	var connections []map[string]any
 	if err := json.Unmarshal(data, &connections); err != nil {
 		log.Printf("Error parsing Spotify connections: %v", err)
 		return
 	}
 
-	log.Printf("Polling %d Spotify connections", len(connections))
-
 	for _, conn := range connections {
-		userID, ok := conn["user_id"].(string)
-		if !ok {
-			log.Printf("Invalid user_id in connection: %v", conn)
+		userID := toString(conn["user_id"])
+		if userID == "" {
 			continue
 		}
 
-		accessToken, ok := conn["access_token"].(string)
-		if !ok {
-			log.Printf("Invalid access_token for user %s", userID)
-			continue
-		}
-
-		refreshToken, _ := conn["refresh_token"].(string)
-
-		// Parse expires_at so we can proactively refresh before it hits 401
-		var expiresAt time.Time
-		if expiresAtStr, ok := conn["expires_at"].(string); ok {
-			expiresAt, _ = time.Parse(time.RFC3339, expiresAtStr)
-		}
-
-		if err := pollUserActivity(userID, accessToken, refreshToken, expiresAt); err != nil {
+		if err := pollUserActivity(userID); err != nil {
 			log.Printf("Error polling user %s: %v", userID, err)
 			continue
 		}
 	}
 }
 
-// pollUserActivity polls a single user's currently playing track.
-// FIX: Now accepts refreshToken + expiresAt so it can refresh expired tokens
-// inline rather than skipping the user entirely.
-func pollUserActivity(userID, accessToken, refreshToken string, expiresAt time.Time) error {
-	// Proactively refresh if token is expired or within 5 minutes of expiring.
-	// This prevents the 401 "Access token expired" errors seen in the logs.
-	if !expiresAt.IsZero() && time.Now().After(expiresAt.Add(-5*time.Minute)) {
-		log.Printf("Token for user %s is expired or expiring soon, refreshing...", userID)
-
-		spotifyClient := NewSpotifyClient(accessToken)
-		newToken, err := spotifyClient.RefreshToken(refreshToken)
-		if err != nil {
-			return err
+func pollUserActivity(userID string) error {
+	spotifyClient, _, err := GetAuthorizedClient(userID)
+	if err != nil {
+		if errors.Is(err, ErrNoSpotifyConnection) {
+			return nil
 		}
-
-		accessToken = newToken.AccessToken
-		newExpiresAt := time.Now().Add(time.Duration(newToken.ExpiresIn) * time.Second)
-
-		// Persist the refreshed token back to the database
-		updateData := map[string]interface{}{
-			"access_token": newToken.AccessToken,
-			"expires_at":   newExpiresAt.Format(time.RFC3339),
-		}
-		// Only update refresh_token if Spotify returned a new one
-		if newToken.RefreshToken != "" {
-			updateData["refresh_token"] = newToken.RefreshToken
-		}
-
-		_, _, err = supabase.GetClient().From("spotify_connections").
-			Update(updateData, "", "").
-			Eq("user_id", userID).
-			Execute()
-		if err != nil {
-			// Non-fatal: we still have the new access token in memory, log and continue
-			log.Printf("Warning: failed to persist refreshed token for user %s: %v", userID, err)
-		} else {
-			log.Printf("Successfully refreshed token for user %s", userID)
-		}
+		return err
 	}
-
-	spotifyClient := NewSpotifyClient(accessToken)
 
 	track, err := spotifyClient.GetCurrentlyPlaying()
 	if err != nil {
+		if _, ok := err.(*SpotifyRateLimitError); ok {
+			return nil
+		}
 		return err
 	}
 
@@ -181,6 +132,32 @@ func pollUserActivity(userID, accessToken, refreshToken string, expiresAt time.T
 
 		log.Printf("Recorded activity for user %s: %s - %s (playing: %v)",
 			userID, track.Artist, track.Name, track.IsPlaying)
+	} else if exists && lastTrack.IsPlaying != track.IsPlaying {
+		// Update the most recent activity for this user if playback state changed
+		client := supabase.GetClient()
+
+		updateData := map[string]interface{}{
+			"is_playing": track.IsPlaying,
+		}
+
+		// If the song stopped playing, update the played_at to reflect when it stopped
+		if !track.IsPlaying {
+			updateData["played_at"] = time.Now().Format(time.RFC3339)
+		}
+
+		_, _, err := client.From("listening_activity").
+			Update(updateData, "", "").
+			Eq("user_id", userID).
+			Order("played_at", &postgrest.OrderOpts{Ascending: false}).
+			Limit(1, "").
+			Execute()
+
+		if err != nil {
+			log.Printf("Error updating playback state for user %s: %v", userID, err)
+		} else {
+			log.Printf("Updated playback state for user %s: %s - %s (playing: %v)",
+				userID, track.Artist, track.Name, track.IsPlaying)
+		}
 	}
 
 	return nil
@@ -188,7 +165,7 @@ func pollUserActivity(userID, accessToken, refreshToken string, expiresAt time.T
 
 // StoreRecentlyPlayed fetches and stores recently played tracks to avoid duplicates.
 func StoreRecentlyPlayed(userID, accessToken string) error {
-	spotifyClient := NewSpotifyClient(accessToken)
+	spotifyClient := NewSpotifyClient(userID, accessToken)
 
 	tracks, err := spotifyClient.GetRecentlyPlayed()
 	if err != nil {

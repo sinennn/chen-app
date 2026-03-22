@@ -2,15 +2,20 @@ package auth
 
 import (
 	"fmt"
+	"log"
 	"net/http"
+	"os"
 	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
 )
 
-// JWTMiddleware validates Supabase JWT tokens (supports ES256 and HS256)
 func JWTMiddleware() gin.HandlerFunc {
+	jwtSecret := os.Getenv("SUPABASE_JWT_SECRET")
+	isProduction := strings.EqualFold(os.Getenv("APP_ENV"), "production")
+	verifyInDevelopment := strings.EqualFold(os.Getenv("VERIFY_SUPABASE_JWT"), "true")
+
 	return func(c *gin.Context) {
 		authHeader := c.GetHeader("Authorization")
 		if authHeader == "" {
@@ -26,12 +31,37 @@ func JWTMiddleware() gin.HandlerFunc {
 			return
 		}
 
-		// Parse without verification to extract claims
-		// Supabase uses ES256 (ECDSA) which requires the public key from the JWKS endpoint
-		// For server-to-server with Supabase service role, we trust the token structure
-		token, _, err := new(jwt.Parser).ParseUnverified(tokenString, jwt.MapClaims{})
-		if err != nil {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid token format"})
+		var (
+			token *jwt.Token
+			err   error
+		)
+
+		shouldVerifySignature := isProduction || verifyInDevelopment
+
+		if shouldVerifySignature {
+			if jwtSecret == "" {
+				if isProduction {
+					c.JSON(http.StatusInternalServerError, gin.H{"error": "SUPABASE_JWT_SECRET is required in production"})
+					c.Abort()
+					return
+				}
+
+				log.Println("auth: VERIFY_SUPABASE_JWT enabled but SUPABASE_JWT_SECRET is empty, falling back to unverified parsing")
+				token, _, err = new(jwt.Parser).ParseUnverified(tokenString, jwt.MapClaims{})
+			} else {
+				token, err = jwt.Parse(tokenString, func(parsed *jwt.Token) (any, error) {
+					if _, ok := parsed.Method.(*jwt.SigningMethodHMAC); !ok {
+						return nil, fmt.Errorf("unexpected signing method: %s", parsed.Method.Alg())
+					}
+					return []byte(jwtSecret), nil
+				})
+			}
+		} else {
+			token, _, err = new(jwt.Parser).ParseUnverified(tokenString, jwt.MapClaims{})
+		}
+
+		if err != nil || token == nil || (shouldVerifySignature && !token.Valid) {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid token"})
 			c.Abort()
 			return
 		}

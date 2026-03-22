@@ -66,23 +66,18 @@ export default function UsernameScreen() {
   };
 
   const handleContinue = () => {
-    console.log('Continue button pressed', { isValid, username, avatarSeed });
     if (isValid && username) {
       if (avatarSeed) {
-        // If we have an avatar seed, go to music-services with both params
         router.push({ 
           pathname: '/(auth)/music-services', 
           params: { username, avatarSeed } 
         });
       } else {
-        // If no avatar seed, go to avatar first
         router.push({ 
           pathname: '/(auth)/avatar', 
           params: { username } 
         });
       }
-    } else {
-      console.log('Cannot navigate - invalid or empty username');
     }
   };
 
@@ -238,26 +233,7 @@ export default function UsernameScreen() {
           {/* Continue Button */}
           <View className="px-6 pb-8">
             <Pressable
-              onPress={() => {
-                console.log('Continue button pressed', { isValid, username, avatarSeed });
-                if (isValid && username) {
-                  if (avatarSeed) {
-                    // If we have an avatar seed, go to music-services with both params
-                    router.push({ 
-                      pathname: '/(auth)/music-services', 
-                      params: { username, avatarSeed } 
-                    });
-                  } else {
-                    // If no avatar seed, go to avatar first
-                    router.push({ 
-                      pathname: '/(auth)/avatar', 
-                      params: { username } 
-                    });
-                  }
-                } else {
-                  console.log('Cannot navigate - invalid or empty username');
-                }
-              }}
+              onPress={handleContinue}
               disabled={!isValid || !username}
               style={{
                 height: 60,

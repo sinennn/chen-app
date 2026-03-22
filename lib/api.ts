@@ -24,6 +24,13 @@ export type Friend = {
   current_track?: ActivityItem;
 };
 
+export type FriendSearchResult = {
+  id: string;
+  username: string;
+  user_tag?: string;
+  avatar_id: string;
+};
+
 export type UserProfile = {
   id: string;
   email: string;
@@ -38,28 +45,36 @@ export type ChatResponse = {
   reply: string;
 };
 
+export type RecommendedTrack = {
+  name: string;
+  artist: string;
+  album: string;
+  album_art: string;
+  rank: number;
+};
+
 const API_BASE = process.env.EXPO_PUBLIC_API_URL?.replace(/\/$/, '') || 'http://localhost:8080/api/v1';
 
 async function getAuthHeaders(): Promise<Record<string, string>> {
   const { data: { session } } = await supabase.auth.getSession();
-  console.log('Session status:', session ? 'Active' : 'No session');
-  console.log('Access token present:', !!session?.access_token);
-  if (session?.access_token) {
-    console.log('Token first 50 chars:', session.access_token.substring(0, 50) + '...');
+  if (!session?.access_token) {
+    throw new Error('Authentication required');
   }
-  
+
   return {
     'Content-Type': 'application/json',
-    'Authorization': `Bearer ${session?.access_token ?? ''}`,
+    'Authorization': `Bearer ${session.access_token}`,
   };
 }
 
 async function getJSON<T>(path: string): Promise<T> {
   const headers = await getAuthHeaders();
   const res = await fetch(`${API_BASE}${path}`, { headers });
-  if (!res.ok) throw new Error(`API ${path} failed with ${res.status}`);
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(text || `API ${path} failed with ${res.status}`);
+  }
   const json = await res.json();
-  console.log(`API ${path} response:`, json);
   return (json.data ?? json) as T;
 }
 
@@ -70,7 +85,10 @@ async function postJSON<T>(path: string, body: any): Promise<T> {
     headers,
     body: JSON.stringify(body),
   });
-  if (!res.ok) throw new Error(`API ${path} failed with ${res.status}`);
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(text || `API ${path} failed with ${res.status}`);
+  }
   const json = await res.json();
   return (json.data ?? json) as T;
 }
@@ -81,6 +99,7 @@ export const api = {
   },
   friends: {
     list: () => getJSON<Friend[]>('/friends'),
+    search: (query: string) => getJSON<FriendSearchResult[]>(`/friends/search?q=${encodeURIComponent(query)}`),
     add: (username: string) => postJSON('/friends/add', { username }),
     accept: (friendshipId: string) => postJSON('/friends/accept', { friendship_id: friendshipId }),
     decline: (friendshipId: string) => postJSON('/friends/decline', { friendship_id: friendshipId }),
@@ -88,6 +107,7 @@ export const api = {
   spotify: {
     nowPlaying: () => getJSON<ActivityItem | null>('/spotify/now-playing'),
     recent: () => getJSON<ActivityItem[]>('/spotify/recent'),
+    recommendations: () => getJSON<RecommendedTrack[]>('/spotify/recommendations'),
     connect: (accessToken: string, refreshToken: string, expiresIn: number) => 
       postJSON('/spotify/connect', { access_token: accessToken, refresh_token: refreshToken, expires_in: expiresIn }),
   },
@@ -102,4 +122,3 @@ export const api = {
     chat: (message: string, history: any[]) => postJSON<ChatResponse>('/chen/chat', { message, history }),
   },
 };
-
