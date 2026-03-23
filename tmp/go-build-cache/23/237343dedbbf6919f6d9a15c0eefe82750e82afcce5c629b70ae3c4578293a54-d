@@ -1,0 +1,4 @@
+./client.go
+./execute.go
+./filterbuilder.go
+./querybuilder.go

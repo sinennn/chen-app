@@ -15,7 +15,7 @@ import (
 var sharedSpotifyCache = newSharedCache()
 
 const (
-	currentlyPlayingTTL = 15 * time.Second
+	currentlyPlayingTTL = 30 * time.Second
 	recentlyPlayedTTL   = 5 * time.Minute
 	topDataTTL          = 12 * time.Hour
 	recommendationsTTL  = 6 * time.Hour
@@ -54,6 +54,40 @@ type TopArtist struct {
 	ImageURL string   `json:"image_url"`
 	Genres   []string `json:"genres"`
 	Rank     int      `json:"rank"`
+}
+
+type SpotifyArtistImage struct {
+	Height int    `json:"height"`
+	URL    string `json:"url"`
+	Width  int    `json:"width"`
+}
+
+type SpotifyArtistFollowers struct {
+	Href  *string `json:"href"`
+	Total int     `json:"total"`
+}
+
+type SpotifyArtistItem struct {
+	ExternalURLs map[string]string      `json:"external_urls"`
+	Followers    SpotifyArtistFollowers `json:"followers"`
+	Genres       []string               `json:"genres"`
+	Href         string                 `json:"href"`
+	ID           string                 `json:"id"`
+	Images       []SpotifyArtistImage   `json:"images"`
+	Name         string                 `json:"name"`
+	Popularity   int                    `json:"popularity"`
+	Type         string                 `json:"type"`
+	URI          string                 `json:"uri"`
+}
+
+type SpotifyTopArtistsResponse struct {
+	Items    []SpotifyArtistItem `json:"items"`
+	Total    int                 `json:"total"`
+	Limit    int                 `json:"limit"`
+	Offset   int                 `json:"offset"`
+	Href     string              `json:"href"`
+	Next     *string             `json:"next"`
+	Previous *string             `json:"previous"`
 }
 
 type PlaylistTrack struct {
@@ -104,7 +138,7 @@ type RecentlyPlayedResponse struct {
 		Track struct {
 			Name       string `json:"name"`
 			DurationMs int    `json:"duration_ms"`
-			Album struct {
+			Album      struct {
 				Name   string `json:"name"`
 				Images []struct {
 					URL string `json:"url"`
@@ -130,17 +164,6 @@ type TopTracksResponse struct {
 		Artists []struct {
 			Name string `json:"name"`
 		} `json:"artists"`
-	} `json:"items"`
-}
-
-type TopArtistsResponse struct {
-	Items []struct {
-		ID     string   `json:"id"`
-		Name   string   `json:"name"`
-		Genres []string `json:"genres"`
-		Images []struct {
-			URL string `json:"url"`
-		} `json:"images"`
 	} `json:"items"`
 }
 
@@ -175,6 +198,10 @@ func (sc *SpotifyClient) cacheKey(endpoint string) string {
 }
 
 func (sc *SpotifyClient) doRequest(endpoint, method, requestURL string, body io.Reader, headers map[string]string) ([]byte, int, error) {
+	if err := sharedSpotifyGuard.waitTurn(); err != nil {
+		return nil, 0, err
+	}
+
 	req, err := http.NewRequest(method, requestURL, body)
 	if err != nil {
 		return nil, 0, err
@@ -201,7 +228,12 @@ func (sc *SpotifyClient) doRequest(endpoint, method, requestURL string, body io.
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		return responseBody, resp.StatusCode, handleSpotifyAPIError(resp, endpoint)
+		err := handleSpotifyAPIError(resp, endpoint)
+		if rateLimitErr, ok := err.(*SpotifyRateLimitError); ok {
+			sharedSpotifyGuard.markRateLimited(rateLimitErr.RetryAfter)
+		}
+
+		return responseBody, resp.StatusCode, err
 	}
 
 	return responseBody, resp.StatusCode, nil
@@ -289,23 +321,12 @@ func (sc *SpotifyClient) GetRecentlyPlayed() ([]Track, error) {
 }
 
 func (sc *SpotifyClient) RefreshTokenIfNeeded(refreshToken string) error {
-	req, err := http.NewRequest(http.MethodGet, "https://api.spotify.com/v1/me", nil)
-	if err != nil {
-		return err
-	}
-
-	req.Header.Set("Authorization", "Bearer "+sc.AccessToken)
-	resp, err := sc.HTTPClient.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode == http.StatusOK {
+	_, _, err := sc.doRequest("token-check", http.MethodGet, "https://api.spotify.com/v1/me", nil, nil)
+	if err == nil {
 		return nil
 	}
 
-	if resp.StatusCode == http.StatusUnauthorized && refreshToken != "" {
+	if isTokenExpiredError(err) && refreshToken != "" {
 		token, err := sc.RefreshToken(refreshToken)
 		if err != nil {
 			return fmt.Errorf("failed to refresh token: %w", err)
@@ -314,7 +335,7 @@ func (sc *SpotifyClient) RefreshTokenIfNeeded(refreshToken string) error {
 		return nil
 	}
 
-	return fmt.Errorf("token validation failed with status %d", resp.StatusCode)
+	return err
 }
 
 func (sc *SpotifyClient) RefreshToken(refreshToken string) (*TokenResponse, error) {
@@ -328,35 +349,62 @@ func (sc *SpotifyClient) RefreshToken(refreshToken string) (*TokenResponse, erro
 	form.Set("grant_type", "refresh_token")
 	form.Set("refresh_token", refreshToken)
 
-	req, err := http.NewRequest(http.MethodPost, "https://accounts.spotify.com/api/token", bytes.NewBufferString(form.Encode()))
+	var token *TokenResponse
+	err := retryWithBackoff(func() error {
+		if err := sharedSpotifyGuard.waitTurn(); err != nil {
+			return err
+		}
+
+		req, err := http.NewRequest(http.MethodPost, "https://accounts.spotify.com/api/token", bytes.NewBufferString(form.Encode()))
+		if err != nil {
+			return err
+		}
+
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		req.SetBasicAuth(clientID, clientSecret)
+
+		resp, err := sc.HTTPClient.Do(req)
+		if err != nil {
+			return err
+		}
+		defer resp.Body.Close()
+
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return err
+		}
+
+		if resp.StatusCode == http.StatusTooManyRequests {
+			rateLimitErr := &SpotifyRateLimitError{RetryAfter: getRetryAfter(resp)}
+			sharedSpotifyGuard.markRateLimited(rateLimitErr.RetryAfter)
+			return rateLimitErr
+		}
+
+		if resp.StatusCode >= http.StatusInternalServerError {
+			return &SpotifyError{
+				StatusCode: resp.StatusCode,
+				Message:    "Spotify token service temporarily unavailable",
+				Endpoint:   "token-refresh",
+			}
+		}
+
+		if resp.StatusCode != http.StatusOK {
+			return fmt.Errorf("token refresh failed: %d - %s", resp.StatusCode, string(body))
+		}
+
+		parsed := &TokenResponse{}
+		if err := json.Unmarshal(body, parsed); err != nil {
+			return err
+		}
+
+		token = parsed
+		return nil
+	})
 	if err != nil {
 		return nil, err
 	}
 
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.SetBasicAuth(clientID, clientSecret)
-
-	resp, err := sc.HTTPClient.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("token refresh failed: %d - %s", resp.StatusCode, string(body))
-	}
-
-	var token TokenResponse
-	if err := json.Unmarshal(body, &token); err != nil {
-		return nil, err
-	}
-
-	return &token, nil
+	return token, nil
 }
 
 func (sc *SpotifyClient) GetTopTracks(timeRange string) ([]TopTrack, error) {
@@ -409,43 +457,90 @@ func (sc *SpotifyClient) GetTopArtists(timeRange string) ([]TopArtist, error) {
 		timeRange = "medium_term"
 	}
 
-	return loadSharedResource(sharedSpotifyCache, sc.cacheKey("top-artists:"+timeRange), topDataTTL, func() ([]TopArtist, error) {
-		var artists []TopArtist
+	cacheKey := sc.cacheKey("top-artists:" + timeRange)
+	if cached, ok := sharedSpotifyCache.getFresh(cacheKey); ok {
+		if artists, ok := cached.([]TopArtist); ok {
+			if hasAnyGenres(artists) {
+				return artists, nil
+			}
+
+			sharedSpotifyCache.Delete(cacheKey)
+		}
+	}
+
+	return loadSharedResource(sharedSpotifyCache, cacheKey, topDataTTL, func() ([]TopArtist, error) {
+		response, err := sc.GetTopArtistsRaw(timeRange, 50)
+		if err != nil {
+			return nil, err
+		}
+
+		result := make([]TopArtist, 0, len(response.Items))
+		for i, item := range response.Items {
+			if item.Name == "" {
+				continue
+			}
+
+			artist := TopArtist{
+				ID:     item.ID,
+				Name:   item.Name,
+				Genres: item.Genres,
+				Rank:   i + 1,
+			}
+			if len(item.Images) > 0 {
+				artist.ImageURL = item.Images[0].URL
+			}
+
+			result = append(result, artist)
+		}
+
+		return result, nil
+	})
+}
+
+func (sc *SpotifyClient) GetTopArtistsRaw(timeRange string, limit int) (*SpotifyTopArtistsResponse, error) {
+	if timeRange == "" {
+		timeRange = "medium_term"
+	}
+	if limit <= 0 {
+		limit = 50
+	}
+	if limit > 50 {
+		limit = 50
+	}
+
+	cacheKey := sc.cacheKey(fmt.Sprintf("top-artists-raw:%s:%d", timeRange, limit))
+	if cached, ok := sharedSpotifyCache.getFresh(cacheKey); ok {
+		if response, ok := cached.(*SpotifyTopArtistsResponse); ok {
+			if hasAnyGenresInTopArtistResponse(response) {
+				return response, nil
+			}
+
+			sharedSpotifyCache.Delete(cacheKey)
+		}
+	}
+
+	return loadSharedResource(sharedSpotifyCache, cacheKey, topDataTTL, func() (*SpotifyTopArtistsResponse, error) {
+		var response *SpotifyTopArtistsResponse
 		err := retryWithBackoff(func() error {
-			requestURL := fmt.Sprintf("https://api.spotify.com/v1/me/top/artists?time_range=%s&limit=50", timeRange)
-			body, _, err := sc.doRequest("top-artists:"+timeRange, http.MethodGet, requestURL, nil, nil)
+			requestURL := fmt.Sprintf("https://api.spotify.com/v1/me/top/artists?time_range=%s&limit=%d", timeRange, limit)
+			body, _, err := sc.doRequest("top-artists-raw:"+timeRange, http.MethodGet, requestURL, nil, nil)
 			if err != nil {
 				return err
 			}
 
-			var response TopArtistsResponse
-			if err := json.Unmarshal(body, &response); err != nil {
+			var parsed SpotifyTopArtistsResponse
+			if err := json.Unmarshal(body, &parsed); err != nil {
 				return err
 			}
 
-			result := make([]TopArtist, 0, len(response.Items))
-			for i, item := range response.Items {
-				if item.Name == "" {
-					continue
-				}
-
-				artist := TopArtist{
-					ID:     item.ID,
-					Name:   item.Name,
-					Genres: item.Genres,
-					Rank:   i + 1,
-				}
-				if len(item.Images) > 0 {
-					artist.ImageURL = item.Images[0].URL
-				}
-
-				result = append(result, artist)
-			}
-
-			artists = result
+			response = &parsed
 			return nil
 		})
-		return artists, err
+		if err != nil {
+			return nil, err
+		}
+
+		return response, nil
 	})
 }
 
@@ -538,7 +633,17 @@ func (sc *SpotifyClient) GetArtistGenres(name string) ([]string, error) {
 		return nil, nil
 	}
 
-	return loadSharedResource(sharedSpotifyCache, sc.cacheKey("artist-genres:"+normalized), artistLookupTTL, func() ([]string, error) {
+	cacheKey := sc.cacheKey("artist-genres:" + normalized)
+	if cached, ok := sharedSpotifyCache.getFresh(cacheKey); ok {
+		if genres, ok := cached.([]string); ok {
+			if len(genres) > 0 {
+				return genres, nil
+			}
+			sharedSpotifyCache.Delete(cacheKey)
+		}
+	}
+
+	return loadSharedResource(sharedSpotifyCache, cacheKey, artistLookupTTL, func() ([]string, error) {
 		requestURL := "https://api.spotify.com/v1/search?type=artist&limit=1&q=" + url.QueryEscape(name)
 		body, _, err := sc.doRequest("artist-search", http.MethodGet, requestURL, nil, nil)
 		if err != nil {
@@ -563,7 +668,17 @@ func (sc *SpotifyClient) GetArtistGenresByID(artistID string) ([]string, error) 
 		return nil, nil
 	}
 
-	return loadSharedResource(sharedSpotifyCache, sc.cacheKey("artist-genres-id:"+normalized), artistLookupTTL, func() ([]string, error) {
+	cacheKey := sc.cacheKey("artist-genres-id:" + normalized)
+	if cached, ok := sharedSpotifyCache.getFresh(cacheKey); ok {
+		if genres, ok := cached.([]string); ok {
+			if len(genres) > 0 {
+				return genres, nil
+			}
+			sharedSpotifyCache.Delete(cacheKey)
+		}
+	}
+
+	return loadSharedResource(sharedSpotifyCache, cacheKey, artistLookupTTL, func() ([]string, error) {
 		requestURL := "https://api.spotify.com/v1/artists/" + url.PathEscape(normalized)
 		body, _, err := sc.doRequest("artist-details", http.MethodGet, requestURL, nil, nil)
 		if err != nil {
@@ -577,4 +692,42 @@ func (sc *SpotifyClient) GetArtistGenresByID(artistID string) ([]string, error) 
 
 		return response.Genres, nil
 	})
+}
+
+func toStringValue(value any) string {
+	if value == nil {
+		return ""
+	}
+
+	if str, ok := value.(string); ok {
+		return str
+	}
+
+	return fmt.Sprintf("%v", value)
+}
+
+func hasAnyGenres(artists []TopArtist) bool {
+	limit := min(len(artists), 10)
+	for _, artist := range artists[:limit] {
+		if len(artist.Genres) > 0 {
+			return true
+		}
+	}
+
+	return false
+}
+
+func hasAnyGenresInTopArtistResponse(response *SpotifyTopArtistsResponse) bool {
+	if response == nil {
+		return false
+	}
+
+	limit := min(len(response.Items), 10)
+	for _, artist := range response.Items[:limit] {
+		if len(artist.Genres) > 0 {
+			return true
+		}
+	}
+
+	return false
 }

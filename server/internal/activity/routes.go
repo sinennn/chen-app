@@ -73,6 +73,7 @@ func getFeed(c *gin.Context) {
 	data, _, err := client.From("listening_activity").
 		Select(activityQuery, "", false).
 		In("user_id", visibleUserIDs).
+		Eq("is_playing", "true").
 		Order("played_at", &postgrest.OrderOpts{Ascending: false}).
 		Limit(50, "").
 		Execute()

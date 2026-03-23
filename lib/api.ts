@@ -53,6 +53,38 @@ export type RecommendedTrack = {
   rank: number;
 };
 
+export type SpotifyArtistImage = {
+  height: number;
+  url: string;
+  width: number;
+};
+
+export type SpotifyArtist = {
+  external_urls: Record<string, string>;
+  followers: {
+    href: string | null;
+    total: number;
+  };
+  genres: string[];
+  href: string;
+  id: string;
+  images: SpotifyArtistImage[];
+  name: string;
+  popularity: number;
+  type: string;
+  uri: string;
+};
+
+export type SpotifyTopArtistsResponse = {
+  items: SpotifyArtist[];
+  total: number;
+  limit: number;
+  offset: number;
+  href: string;
+  next: string | null;
+  previous: string | null;
+};
+
 const API_BASE = process.env.EXPO_PUBLIC_API_URL?.replace(/\/$/, '') || 'http://localhost:8080/api/v1';
 
 async function getAuthHeaders(): Promise<Record<string, string>> {
@@ -107,6 +139,8 @@ export const api = {
   spotify: {
     nowPlaying: () => getJSON<ActivityItem | null>('/spotify/now-playing'),
     recent: () => getJSON<ActivityItem[]>('/spotify/recent'),
+    topArtists: (timeRange = 'short_term', limit = 5) =>
+      getJSON<SpotifyTopArtistsResponse>(`/spotify/top-artists?time_range=${encodeURIComponent(timeRange)}&limit=${limit}`),
     recommendations: () => getJSON<RecommendedTrack[]>('/spotify/recommendations'),
     connect: (accessToken: string, refreshToken: string, expiresIn: number) => 
       postJSON('/spotify/connect', { access_token: accessToken, refresh_token: refreshToken, expires_in: expiresIn }),

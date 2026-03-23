@@ -1,4 +1,5 @@
 import { configureGoogleSignIn } from '@/lib/auth';
+import AsyncStorage from '@/lib/storage';
 import { supabase } from '@/lib/supabase';
 import { Session, User } from '@supabase/supabase-js';
 import { createContext, useContext, useEffect, useState } from 'react';
@@ -38,6 +39,31 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [profileLoading, setProfileLoading] = useState(false);
 
+  const PROFILE_CACHE_KEY = 'chen_user_profile';
+
+  const loadCachedProfile = async (): Promise<UserProfile | null> => {
+    try {
+      const raw = await AsyncStorage.getItem(PROFILE_CACHE_KEY);
+      if (!raw) return null;
+      return JSON.parse(raw) as UserProfile;
+    } catch (error) {
+      console.error('AuthContext: Failed loading cached profile', error);
+      return null;
+    }
+  };
+
+  const saveCachedProfile = async (profileData: UserProfile | null) => {
+    try {
+      if (!profileData) {
+        await AsyncStorage.removeItem(PROFILE_CACHE_KEY);
+        return;
+      }
+      await AsyncStorage.setItem(PROFILE_CACHE_KEY, JSON.stringify(profileData));
+    } catch (error) {
+      console.error('AuthContext: Failed saving cached profile', error);
+    }
+  };
+
   const fetchUserProfile = async (userId: string): Promise<UserProfile | null> => {
     if (profileLoading) return null; // Prevent concurrent fetches
 
@@ -72,15 +98,33 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               console.error('AuthContext: Error creating user profile:', createError);
               return null;
             }
-            return createdUser as UserProfile;
+
+            const profileResult = createdUser as UserProfile;
+            await saveCachedProfile(profileResult);
+            return profileResult;
           }
         }
         console.error('AuthContext: Error fetching user profile:', error);
+
+        const cached = await loadCachedProfile();
+        if (cached) {
+          return cached;
+        }
+
         return null;
       }
-      return data as UserProfile;
+
+      const profileResult = data as UserProfile;
+      await saveCachedProfile(profileResult);
+      return profileResult;
     } catch (error) {
       console.error('AuthContext: Exception fetching user profile:', error);
+
+      const cached = await loadCachedProfile();
+      if (cached) {
+        return cached;
+      }
+
       return null;
     } finally {
       setProfileLoading(false);
@@ -91,20 +135,29 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // Configure Google Sign-In
     configureGoogleSignIn();
 
-    // Get initial session
-    supabase.auth.getSession().then(async ({ data: { session } }) => {
+    const init = async () => {
+      const cachedProfile = await loadCachedProfile();
+      if (cachedProfile) {
+        setProfile(cachedProfile);
+      }
+
+      const { data: { session } } = await supabase.auth.getSession();
       setSession(session);
       setUser(session?.user ?? null);
-      
+
       if (session?.user) {
         const userProfile = await fetchUserProfile(session.user.id);
         setProfile(userProfile);
       } else {
-        setProfile(null);
+        if (!cachedProfile) {
+          setProfile(null);
+        }
       }
-      
+
       setLoading(false);
-    });
+    };
+
+    init();
 
     // Listen for auth changes
     const {
@@ -112,14 +165,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } = supabase.auth.onAuthStateChange(async (_event, session) => {
       setSession(session);
       setUser(session?.user ?? null);
-      
+
       if (session?.user) {
         const userProfile = await fetchUserProfile(session.user.id);
         setProfile(userProfile);
       } else {
         setProfile(null);
+        await saveCachedProfile(null);
       }
-      
+
       setLoading(false);
     });
 
@@ -140,6 +194,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setProfile(null);
       setUser(null);
       setSession(null);
+      await saveCachedProfile(null);
 
       // Navigate to login screen
       import('expo-router').then(({ router }) => {

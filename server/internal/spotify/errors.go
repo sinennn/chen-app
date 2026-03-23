@@ -1,6 +1,7 @@
 package spotify
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -79,6 +80,20 @@ func getRetryAfter(resp *http.Response) time.Duration {
 			return time.Duration(seconds) * time.Second
 		}
 	}
+	return 0
+}
+
+func IsRateLimitError(err error) bool {
+	var rateLimitErr *SpotifyRateLimitError
+	return errors.As(err, &rateLimitErr)
+}
+
+func RetryAfter(err error) time.Duration {
+	var rateLimitErr *SpotifyRateLimitError
+	if errors.As(err, &rateLimitErr) {
+		return rateLimitErr.RetryAfter
+	}
+
 	return 0
 }
 

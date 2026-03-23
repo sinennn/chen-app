@@ -22,16 +22,33 @@ import {
 
 const { width: screenWidth } = Dimensions.get('window');
 
-function FeedCard({ item, index, onCommentPress }: { item: ActivityItem; index: number; onCommentPress: (item: ActivityItem) => void }) {
+type ReactionType = 'love' | 'fire' | 'headphones';
+
+type FeedEngagement = {
+  commentCount: number;
+  reactions: Record<ReactionType, number>;
+  userReactions: Record<ReactionType, boolean>;
+};
+
+function FeedCard({
+  item,
+  index,
+  engagement,
+  onCommentPress,
+  onToggleReaction,
+}: {
+  item: ActivityItem;
+  index: number;
+  engagement?: FeedEngagement;
+  onCommentPress: (item: ActivityItem) => void;
+  onToggleReaction: (activityId: string, reactionType: ReactionType) => void;
+}) {
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(40)).current;
   const scaleAnim = useRef(new Animated.Value(1)).current;
   const heartAnim = useRef(new Animated.Value(0)).current;
 
   const lastTap = useRef<number | null>(null);
-
-  const [liked, setLiked] = useState(false);
-  const [likeCount, setLikeCount] = useState(0);
 
   const contextOptions = [
     "is obsessed with",
@@ -100,13 +117,16 @@ function FeedCard({ item, index, onCommentPress }: { item: ActivityItem; index: 
     const now = Date.now();
 
     if (lastTap.current && now - lastTap.current < 300) {
-      setLiked(true);
-      setLikeCount((prev: number) => prev + 1);
+      onToggleReaction(item.id, 'love');
       triggerHeart();
     }
 
     lastTap.current = now;
   };
+
+  const reactions = engagement?.reactions || { love: 0, fire: 0, headphones: 0 };
+  const userReactions = engagement?.userReactions || { love: false, fire: false, headphones: false };
+  const commentCount = engagement?.commentCount || 0;
 
   return (
     <Animated.View
@@ -257,33 +277,37 @@ function FeedCard({ item, index, onCommentPress }: { item: ActivityItem; index: 
               }}
             >
               <Pressable
-                onPress={() => {
-                  setLiked(!liked);
-                  setLikeCount((prev: number) =>
-                    liked ? prev - 1 : prev + 1
-                  );
-                }}
+                onPress={() => onToggleReaction(item.id, 'love')}
               >
-                <Text style={{ fontSize: 18 }}>
-                  {liked ? "🧡" : "🤍"} {likeCount}
+                <Text style={{ fontSize: 18, color: userReactions.love ? Colors.orange : Colors.textPrimary }}>
+                  {userReactions.love ? "🧡" : "🤍"} {reactions.love}
                 </Text>
               </Pressable>
 
-              <Pressable>
-                <Text style={{ fontSize: 18 }}>🔥</Text>
+              <Pressable onPress={() => onToggleReaction(item.id, 'fire')}>
+                <Text style={{ fontSize: 18, color: userReactions.fire ? Colors.orange : Colors.textPrimary }}>
+                  🔥 {reactions.fire}
+                </Text>
               </Pressable>
 
-              <Pressable>
-                <Text style={{ fontSize: 18 }}>🎧</Text>
+              <Pressable onPress={() => onToggleReaction(item.id, 'headphones')}>
+                <Text style={{ fontSize: 18, color: userReactions.headphones ? Colors.orange : Colors.textPrimary }}>
+                  🎧 {reactions.headphones}
+                </Text>
               </Pressable>
             </View>
 
             <Pressable onPress={() => onCommentPress(item)}>
-              <IconSymbol
-                name="bubble.right"
-                size={20}
-                color="rgba(255,255,255,0.6)"
-              />
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                <IconSymbol
+                  name="bubble.right"
+                  size={20}
+                  color="rgba(255,255,255,0.6)"
+                />
+                <Text style={{ color: 'rgba(255,255,255,0.6)', fontSize: 12, fontWeight: '600' }}>
+                  {commentCount}
+                </Text>
+              </View>
             </Pressable>
           </View>
 
@@ -572,6 +596,7 @@ export default function FeedScreen() {
   const [error, setError] = useState<string | null>(null);
   const [commentModalVisible, setCommentModalVisible] = useState(false);
   const [selectedActivity, setSelectedActivity] = useState<ActivityItem | null>(null);
+  const [engagementByActivity, setEngagementByActivity] = useState<Record<string, FeedEngagement>>({});
 
   // Update local profile when auth profile changes
   useEffect(() => {
@@ -579,6 +604,51 @@ export default function FeedScreen() {
       setProfile(authProfile);
     }
   }, [authProfile]);
+
+  const fetchEngagement = async (activityIds: string[]) => {
+    if (activityIds.length === 0 || !user?.id) {
+      setEngagementByActivity({});
+      return;
+    }
+
+    const [commentsResult, reactionsResult] = await Promise.all([
+      supabase
+        .from('activity_comments')
+        .select('activity_id')
+        .in('activity_id', activityIds),
+      supabase
+        .from('activity_reactions')
+        .select('activity_id,reaction_type,user_id')
+        .in('activity_id', activityIds),
+    ]);
+
+    const nextState: Record<string, FeedEngagement> = {};
+    for (const activityId of activityIds) {
+      nextState[activityId] = {
+        commentCount: 0,
+        reactions: { love: 0, fire: 0, headphones: 0 },
+        userReactions: { love: false, fire: false, headphones: false },
+      };
+    }
+
+    for (const comment of commentsResult.data || []) {
+      if (nextState[comment.activity_id]) {
+        nextState[comment.activity_id].commentCount += 1;
+      }
+    }
+
+    for (const reaction of reactionsResult.data || []) {
+      const item = nextState[reaction.activity_id];
+      if (!item) continue;
+
+      item.reactions[reaction.reaction_type as ReactionType] += 1;
+      if (reaction.user_id === user.id) {
+        item.userReactions[reaction.reaction_type as ReactionType] = true;
+      }
+    }
+
+    setEngagementByActivity(nextState);
+  };
 
   const fetchFeed = async (isRefresh = false) => {
     if (authLoading || !user) {
@@ -596,8 +666,10 @@ export default function FeedScreen() {
       
       const feedData = await api.feed.get();
       setFeed(feedData);
+      await fetchEngagement(feedData.map((item) => item.id));
     } catch (err) {
       setFeed([]);
+      setEngagementByActivity({});
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -669,6 +741,71 @@ export default function FeedScreen() {
   const handleCloseCommentModal = () => {
     setCommentModalVisible(false);
     setSelectedActivity(null);
+  };
+
+  const handleCommentCountChange = (activityId: string, count: number) => {
+    setEngagementByActivity((prev) => ({
+      ...prev,
+      [activityId]: {
+        commentCount: count,
+        reactions: prev[activityId]?.reactions || { love: 0, fire: 0, headphones: 0 },
+        userReactions: prev[activityId]?.userReactions || { love: false, fire: false, headphones: false },
+      },
+    }));
+  };
+
+  const handleToggleReaction = async (activityId: string, reactionType: ReactionType) => {
+    if (!user?.id) return;
+
+    const current = engagementByActivity[activityId] || {
+      commentCount: 0,
+      reactions: { love: 0, fire: 0, headphones: 0 },
+      userReactions: { love: false, fire: false, headphones: false },
+    };
+    const isActive = current.userReactions[reactionType];
+
+    setEngagementByActivity((prev) => {
+      const existing = prev[activityId] || current;
+      return {
+        ...prev,
+        [activityId]: {
+          ...existing,
+          reactions: {
+            ...existing.reactions,
+            [reactionType]: Math.max(0, existing.reactions[reactionType] + (isActive ? -1 : 1)),
+          },
+          userReactions: {
+            ...existing.userReactions,
+            [reactionType]: !isActive,
+          },
+        },
+      };
+    });
+
+    try {
+      if (isActive) {
+        await supabase
+          .from('activity_reactions')
+          .delete()
+          .eq('activity_id', activityId)
+          .eq('user_id', user.id)
+          .eq('reaction_type', reactionType);
+        return;
+      }
+
+      await supabase
+        .from('activity_reactions')
+        .insert({
+          activity_id: activityId,
+          user_id: user.id,
+          reaction_type: reactionType,
+        });
+    } catch (error) {
+      setEngagementByActivity((prev) => ({
+        ...prev,
+        [activityId]: current,
+      }));
+    }
   };
 
   const renderEmptyState = () => (
@@ -774,7 +911,14 @@ export default function FeedScreen() {
               renderEmptyState()
             ) : (
               feed.map((item, index) => (
-                <FeedCard key={`${item.id}-${index}`} item={item} index={index} onCommentPress={handleCommentPress} />
+                <FeedCard
+                  key={`${item.id}-${index}`}
+                  item={item}
+                  index={index}
+                  engagement={engagementByActivity[item.id]}
+                  onCommentPress={handleCommentPress}
+                  onToggleReaction={handleToggleReaction}
+                />
               ))
             )}
           </ScrollView>
@@ -789,6 +933,7 @@ export default function FeedScreen() {
           activityId={selectedActivity.id}
           trackName={selectedActivity.track_name}
           artistName={selectedActivity.artist_name}
+          onCommentCountChange={(count) => handleCommentCountChange(selectedActivity.id, count)}
         />
       )}
     </View>

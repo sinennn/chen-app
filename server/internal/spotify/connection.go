@@ -24,25 +24,70 @@ func GetAuthorizedClient(userID string) (*SpotifyClient, *Connection, error) {
 		return nil, nil, err
 	}
 
-	if !conn.ExpiresAt.IsZero() && time.Now().After(conn.ExpiresAt.Add(-5*time.Minute)) {
-		client := NewSpotifyClient(userID, conn.AccessToken)
-		refreshed, refreshErr := client.RefreshToken(conn.RefreshToken)
+	if shouldRefreshConnection(conn) {
+		refreshedConn, refreshErr := refreshConnection(conn)
 		if refreshErr != nil {
+			if IsRateLimitError(refreshErr) && tokenStillUsable(conn) {
+				return NewSpotifyClient(conn.UserID, conn.AccessToken), conn, nil
+			}
 			return nil, nil, refreshErr
 		}
 
-		conn.AccessToken = refreshed.AccessToken
-		conn.ExpiresAt = time.Now().Add(time.Duration(refreshed.ExpiresIn) * time.Second)
-		if refreshed.RefreshToken != "" {
-			conn.RefreshToken = refreshed.RefreshToken
-		}
-
-		if err := saveConnection(conn); err != nil {
-			return nil, nil, err
-		}
+		conn = refreshedConn
 	}
 
 	return NewSpotifyClient(conn.UserID, conn.AccessToken), conn, nil
+}
+
+func shouldRefreshConnection(conn *Connection) bool {
+	return conn != nil &&
+		!conn.ExpiresAt.IsZero() &&
+		time.Now().After(conn.ExpiresAt.Add(-5*time.Minute))
+}
+
+func tokenStillUsable(conn *Connection) bool {
+	return conn != nil &&
+		conn.AccessToken != "" &&
+		(conn.ExpiresAt.IsZero() || time.Now().Before(conn.ExpiresAt))
+}
+
+func refreshConnection(conn *Connection) (*Connection, error) {
+	value, err, _ := tokenRefreshGroup.Do(conn.UserID, func() (any, error) {
+		latestConn, err := getConnection(conn.UserID)
+		if err != nil {
+			return nil, err
+		}
+
+		if !shouldRefreshConnection(latestConn) {
+			return latestConn, nil
+		}
+
+		client := NewSpotifyClient(latestConn.UserID, latestConn.AccessToken)
+		refreshed, err := client.RefreshToken(latestConn.RefreshToken)
+		if err != nil {
+			if IsRateLimitError(err) && tokenStillUsable(latestConn) {
+				return latestConn, nil
+			}
+			return nil, err
+		}
+
+		latestConn.AccessToken = refreshed.AccessToken
+		latestConn.ExpiresAt = time.Now().Add(time.Duration(refreshed.ExpiresIn) * time.Second)
+		if refreshed.RefreshToken != "" {
+			latestConn.RefreshToken = refreshed.RefreshToken
+		}
+
+		if err := saveConnection(latestConn); err != nil {
+			return nil, err
+		}
+
+		return latestConn, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return value.(*Connection), nil
 }
 
 func getConnection(userID string) (*Connection, error) {

@@ -3,6 +3,7 @@ package spotify
 import (
 	"errors"
 	"net/http"
+	"strconv"
 	"time"
 
 	"chen/internal/auth"
@@ -88,6 +89,10 @@ func handleNowPlaying(c *gin.Context) {
 			c.JSON(http.StatusOK, nil)
 			return
 		}
+		if IsRateLimitError(err) {
+			c.JSON(http.StatusOK, nil)
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to load Spotify connection"})
 		return
 	}
@@ -129,6 +134,10 @@ func handleRecent(c *gin.Context) {
 	spotifyClient, _, err := GetAuthorizedClient(userID)
 	if err != nil {
 		if errors.Is(err, ErrNoSpotifyConnection) {
+			c.JSON(http.StatusOK, []ActivityItem{})
+			return
+		}
+		if IsRateLimitError(err) {
 			c.JSON(http.StatusOK, []ActivityItem{})
 			return
 		}
@@ -181,6 +190,10 @@ func handleTopTracks(c *gin.Context) {
 			c.JSON(http.StatusOK, []TopTrack{})
 			return
 		}
+		if IsRateLimitError(err) {
+			c.JSON(http.StatusOK, []TopTrack{})
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to load Spotify connection"})
 		return
 	}
@@ -205,27 +218,45 @@ func handleTopArtists(c *gin.Context) {
 		return
 	}
 
+	limit, parseErr := strconv.Atoi(c.DefaultQuery("limit", "50"))
+	if parseErr != nil {
+		limit = 50
+	}
+	timeRange := validTimeRange(c.DefaultQuery("time_range", "medium_term"))
+
 	spotifyClient, _, err := GetAuthorizedClient(userID)
 	if err != nil {
 		if errors.Is(err, ErrNoSpotifyConnection) {
 			c.JSON(http.StatusOK, []TopArtist{})
 			return
 		}
+		if IsRateLimitError(err) {
+			c.JSON(http.StatusOK, SpotifyTopArtistsResponse{
+				Items:  []SpotifyArtistItem{},
+				Limit:  limit,
+				Offset: 0,
+			})
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to load Spotify connection"})
 		return
 	}
 
-	artists, err := spotifyClient.GetTopArtists(validTimeRange(c.DefaultQuery("time_range", "medium_term")))
+	response, err := spotifyClient.GetTopArtistsRaw(timeRange, limit)
 	if err != nil {
 		if _, ok := err.(*SpotifyRateLimitError); ok {
-			c.JSON(http.StatusOK, []TopArtist{})
+			c.JSON(http.StatusOK, SpotifyTopArtistsResponse{
+				Items:  []SpotifyArtistItem{},
+				Limit:  limit,
+				Offset: 0,
+			})
 			return
 		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch top artists"})
 		return
 	}
 
-	c.JSON(http.StatusOK, artists)
+	c.JSON(http.StatusOK, response)
 }
 
 func handleOnRepeat(c *gin.Context) {
@@ -238,6 +269,10 @@ func handleOnRepeat(c *gin.Context) {
 	spotifyClient, _, err := GetAuthorizedClient(userID)
 	if err != nil {
 		if errors.Is(err, ErrNoSpotifyConnection) {
+			c.JSON(http.StatusOK, []PlaylistTrack{})
+			return
+		}
+		if IsRateLimitError(err) {
 			c.JSON(http.StatusOK, []PlaylistTrack{})
 			return
 		}
@@ -268,6 +303,10 @@ func handleRecommendations(c *gin.Context) {
 	spotifyClient, _, err := GetAuthorizedClient(userID)
 	if err != nil {
 		if errors.Is(err, ErrNoSpotifyConnection) {
+			c.JSON(http.StatusOK, []PlaylistTrack{})
+			return
+		}
+		if IsRateLimitError(err) {
 			c.JSON(http.StatusOK, []PlaylistTrack{})
 			return
 		}

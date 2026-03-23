@@ -2,6 +2,7 @@ package profile
 
 import (
 	"errors"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -19,9 +20,10 @@ type ProfileStats struct {
 }
 
 type ProfileTopArtist struct {
-	Name      string `json:"name"`
-	PlayCount int    `json:"playCount"`
-	ImageURL  string `json:"imageUrl"`
+	Name      string   `json:"name"`
+	PlayCount int      `json:"playCount"`
+	ImageURL  string   `json:"imageUrl"`
+	Genres    []string `json:"genres"`
 }
 
 type ProfileTopTrack struct {
@@ -76,7 +78,7 @@ func getStats(c *gin.Context) {
 		if topGenre != "" {
 			stats.TopGenre = topGenre
 		}
-	} else if !errors.Is(err, spotify.ErrNoSpotifyConnection) {
+	} else if !errors.Is(err, spotify.ErrNoSpotifyConnection) && !spotify.IsRateLimitError(err) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to load Spotify connection"})
 		return
 	}
@@ -97,11 +99,15 @@ func getTopArtists(c *gin.Context) {
 			c.JSON(http.StatusOK, []ProfileTopArtist{})
 			return
 		}
+		if spotify.IsRateLimitError(err) {
+			c.JSON(http.StatusOK, []ProfileTopArtist{})
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to load Spotify connection"})
 		return
 	}
 
-	artists, err := spotifyClient.GetTopArtists("short_term")
+	response, err := spotifyClient.GetTopArtistsRaw("short_term", 10)
 	if err != nil {
 		if _, ok := err.(*spotify.SpotifyRateLimitError); ok {
 			c.JSON(http.StatusOK, []ProfileTopArtist{})
@@ -111,15 +117,22 @@ func getTopArtists(c *gin.Context) {
 		return
 	}
 
-	result := make([]ProfileTopArtist, 0, min(len(artists), 10))
-	for _, artist := range artists {
+	result := make([]ProfileTopArtist, 0, min(len(response.Items), 10))
+	for i, artist := range response.Items {
 		if len(result) == 10 {
 			break
 		}
+
+		imageURL := ""
+		if len(artist.Images) > 0 {
+			imageURL = artist.Images[0].URL
+		}
+
 		result = append(result, ProfileTopArtist{
 			Name:      artist.Name,
-			PlayCount: artist.Rank,
-			ImageURL:  artist.ImageURL,
+			PlayCount: i + 1,
+			ImageURL:  imageURL,
+			Genres:    artist.Genres,
 		})
 	}
 
@@ -136,6 +149,10 @@ func getTopTracks(c *gin.Context) {
 	spotifyClient, _, err := spotify.GetAuthorizedClient(userID)
 	if err != nil {
 		if errors.Is(err, spotify.ErrNoSpotifyConnection) {
+			c.JSON(http.StatusOK, []ProfileTopTrack{})
+			return
+		}
+		if spotify.IsRateLimitError(err) {
 			c.JSON(http.StatusOK, []ProfileTopTrack{})
 			return
 		}
@@ -188,15 +205,8 @@ func formatGenre(value string) string {
 }
 
 func deriveTopGenre(client *spotify.SpotifyClient) string {
-	type genreCandidate struct {
-		Name string
-		ID   string
-	}
-
-	candidateArtists := make([]genreCandidate, 0, 20)
-
 	for _, timeRange := range []string{"short_term", "medium_term", "long_term"} {
-		artists, err := client.GetTopArtists(timeRange)
+		response, err := client.GetTopArtistsRaw(timeRange, 10)
 		if err != nil {
 			continue
 		}
@@ -204,11 +214,11 @@ func deriveTopGenre(client *spotify.SpotifyClient) string {
 		genreCounts := make(map[string]int)
 		topGenre := ""
 		topCount := 0
-		for _, artist := range artists {
-			if artist.Name != "" {
-				candidateArtists = append(candidateArtists, genreCandidate{Name: artist.Name, ID: artist.ID})
-			}
-			for _, genre := range artist.Genres {
+		for _, artist := range response.Items[:min(len(response.Items), 10)] {
+			genres := artist.Genres
+
+			log.Printf("profile stats top artist [%s]: %s id=%s genres=%v", timeRange, artist.Name, artist.ID, genres)
+			for _, genre := range genres {
 				normalized := strings.ToLower(strings.TrimSpace(genre))
 				if normalized == "" {
 					continue
@@ -225,69 +235,6 @@ func deriveTopGenre(client *spotify.SpotifyClient) string {
 		if topGenre != "" {
 			return formatGenre(topGenre)
 		}
-	}
-
-	for _, timeRange := range []string{"short_term", "medium_term"} {
-		tracks, err := client.GetTopTracks(timeRange)
-		if err != nil {
-			continue
-		}
-		for _, track := range tracks {
-			if track.Artist != "" {
-				candidateArtists = append(candidateArtists, genreCandidate{Name: track.Artist})
-			}
-		}
-	}
-
-	recentlyPlayed, err := client.GetRecentlyPlayed()
-	if err == nil {
-		for _, track := range recentlyPlayed {
-			if track.Artist != "" {
-				candidateArtists = append(candidateArtists, genreCandidate{Name: track.Artist})
-			}
-		}
-	}
-
-	genreCounts := make(map[string]int)
-	topGenre := ""
-	topCount := 0
-	seenArtists := make(map[string]struct{})
-	for _, candidate := range candidateArtists {
-		normalizedArtist := strings.ToLower(strings.TrimSpace(candidate.Name))
-		if normalizedArtist == "" {
-			continue
-		}
-		if _, seen := seenArtists[normalizedArtist]; seen {
-			continue
-		}
-		seenArtists[normalizedArtist] = struct{}{}
-
-		genres := []string{}
-		var lookupErr error
-		if candidate.ID != "" {
-			genres, lookupErr = client.GetArtistGenresByID(candidate.ID)
-		}
-		if lookupErr != nil || len(genres) == 0 {
-			genres, lookupErr = client.GetArtistGenres(candidate.Name)
-		}
-		if lookupErr != nil {
-			continue
-		}
-		for _, genre := range genres {
-			normalizedGenre := strings.ToLower(strings.TrimSpace(genre))
-			if normalizedGenre == "" {
-				continue
-			}
-			genreCounts[normalizedGenre]++
-			if genreCounts[normalizedGenre] > topCount {
-				topCount = genreCounts[normalizedGenre]
-				topGenre = normalizedGenre
-			}
-		}
-	}
-
-	if topGenre != "" {
-		return formatGenre(topGenre)
 	}
 
 	return ""

@@ -88,6 +88,13 @@ func (c *sharedCache) clearCooldown(key string) {
 	delete(c.cooldowns, key)
 }
 
+func (c *sharedCache) Delete(key string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	delete(c.entries, key)
+	delete(c.cooldowns, key)
+}
+
 func loadSharedResource[T any](cache *sharedCache, key string, ttl time.Duration, fetch func() (T, error)) (T, error) {
 	if cached, ok := cache.getFresh(key); ok {
 		return cached.(T), nil

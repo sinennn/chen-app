@@ -1,0 +1,7 @@
+./cache.go
+./connection.go
+./errors.go
+./guard.go
+./poller.go
+./routes.go
+./spotify_client.go

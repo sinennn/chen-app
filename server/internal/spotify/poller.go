@@ -13,11 +13,14 @@ import (
 )
 
 type UserTrackCache struct {
-	TrackName  string
-	ArtistName string
-	AlbumName  string
-	IsPlaying  bool
-	LastUpdate time.Time
+	TrackName       string
+	ArtistName      string
+	AlbumName       string
+	IsPlaying       bool
+	LastUpdate      time.Time
+	PollInterval    time.Duration
+	NextPollAt      time.Time
+	ConsecutiveIdle int
 }
 
 var (
@@ -28,7 +31,7 @@ var (
 func StartPoller() {
 	log.Println("Starting Spotify real-time polling service...")
 
-	ticker := time.NewTicker(30 * time.Second)
+	ticker := time.NewTicker(pollerTickInterval)
 	defer ticker.Stop()
 
 	for range ticker.C {
@@ -57,6 +60,9 @@ func pollAllUsers() {
 		if userID == "" {
 			continue
 		}
+		if !shouldPollUser(userID, time.Now()) {
+			continue
+		}
 
 		if err := pollUserActivity(userID); err != nil {
 			log.Printf("Error polling user %s: %v", userID, err)
@@ -66,9 +72,14 @@ func pollAllUsers() {
 }
 
 func pollUserActivity(userID string) error {
+	now := time.Now()
 	spotifyClient, _, err := GetAuthorizedClient(userID)
 	if err != nil {
 		if errors.Is(err, ErrNoSpotifyConnection) {
+			return nil
+		}
+		if IsRateLimitError(err) {
+			recordRateLimitedPoll(userID, RetryAfter(err))
 			return nil
 		}
 		return err
@@ -76,38 +87,41 @@ func pollUserActivity(userID string) error {
 
 	track, err := spotifyClient.GetCurrentlyPlaying()
 	if err != nil {
-		if _, ok := err.(*SpotifyRateLimitError); ok {
+		if IsRateLimitError(err) {
+			recordRateLimitedPoll(userID, RetryAfter(err))
 			return nil
 		}
 		return err
 	}
 
-	cacheMutex.RLock()
-	lastTrack, exists := userCache[userID]
-	cacheMutex.RUnlock()
-
-	shouldInsert := false
-
-	if !exists {
-		shouldInsert = track.IsPlaying && track.Name != ""
-	} else {
-		trackChanged := lastTrack.TrackName != track.Name ||
-			lastTrack.ArtistName != track.Artist ||
-			lastTrack.AlbumName != track.Album
-
-		playbackStateChanged := lastTrack.IsPlaying != track.IsPlaying
-
-		shouldInsert = trackChanged || (playbackStateChanged && track.IsPlaying && track.Name != "")
-	}
-
 	cacheMutex.Lock()
-	userCache[userID] = &UserTrackCache{
-		TrackName:  track.Name,
-		ArtistName: track.Artist,
-		AlbumName:  track.Album,
-		IsPlaying:  track.IsPlaying,
-		LastUpdate: time.Now(),
+	state, exists := userCache[userID]
+	if !exists || state == nil {
+		state = &UserTrackCache{}
 	}
+	previousState := *state
+
+	trackChanged := state.TrackName != track.Name ||
+		state.ArtistName != track.Artist ||
+		state.AlbumName != track.Album
+	playbackStateChanged := state.IsPlaying != track.IsPlaying
+	shouldInsert := (!exists && track.IsPlaying && track.Name != "") ||
+		(trackChanged || (playbackStateChanged && track.IsPlaying && track.Name != ""))
+
+	state.TrackName = track.Name
+	state.ArtistName = track.Artist
+	state.AlbumName = track.Album
+	state.IsPlaying = track.IsPlaying
+	state.LastUpdate = now
+	if track.IsPlaying && track.Name != "" {
+		state.ConsecutiveIdle = 0
+		state.PollInterval = activePollInterval
+	} else {
+		state.ConsecutiveIdle++
+		state.PollInterval = nextIdlePollInterval(state.ConsecutiveIdle)
+	}
+	state.NextPollAt = now.Add(state.PollInterval)
+	userCache[userID] = state
 	cacheMutex.Unlock()
 
 	if shouldInsert {
@@ -132,7 +146,7 @@ func pollUserActivity(userID string) error {
 
 		log.Printf("Recorded activity for user %s: %s - %s (playing: %v)",
 			userID, track.Artist, track.Name, track.IsPlaying)
-	} else if exists && lastTrack.IsPlaying != track.IsPlaying {
+	} else if exists && previousState.IsPlaying != track.IsPlaying {
 		// Update the most recent activity for this user if playback state changed
 		client := supabase.GetClient()
 
@@ -161,6 +175,68 @@ func pollUserActivity(userID string) error {
 	}
 
 	return nil
+}
+
+func shouldPollUser(userID string, now time.Time) bool {
+	cacheMutex.RLock()
+	defer cacheMutex.RUnlock()
+
+	state, ok := userCache[userID]
+	if !ok || state == nil || state.NextPollAt.IsZero() {
+		return true
+	}
+
+	return !state.NextPollAt.After(now)
+}
+
+func recordRateLimitedPoll(userID string, retryAfter time.Duration) {
+	if retryAfter <= 0 {
+		retryAfter = defaultSpotifyRateLimitCooldown
+	}
+
+	cacheMutex.Lock()
+	defer cacheMutex.Unlock()
+
+	state, ok := userCache[userID]
+	if !ok || state == nil {
+		state = &UserTrackCache{}
+	}
+
+	nextInterval := retryAfter + spotifyRateLimitBuffer
+	if nextInterval < rateLimitedPollFloor {
+		nextInterval = rateLimitedPollFloor
+	}
+	if state.PollInterval > 0 && nextInterval < state.PollInterval*2 {
+		nextInterval = state.PollInterval * 2
+	}
+	if nextInterval > rateLimitedPollCeiling {
+		nextInterval = rateLimitedPollCeiling
+	}
+
+	state.PollInterval = nextInterval
+	state.NextPollAt = time.Now().Add(nextInterval)
+	state.LastUpdate = time.Now()
+	userCache[userID] = state
+}
+
+func nextIdlePollInterval(consecutiveIdle int) time.Duration {
+	if consecutiveIdle <= 0 {
+		return idleBasePollInterval
+	}
+
+	interval := idleBasePollInterval
+	for step := 1; step < consecutiveIdle; step++ {
+		interval *= 2
+		if interval >= idleMaxPollInterval {
+			return idleMaxPollInterval
+		}
+	}
+
+	if interval > idleMaxPollInterval {
+		return idleMaxPollInterval
+	}
+
+	return interval
 }
 
 // StoreRecentlyPlayed fetches and stores recently played tracks to avoid duplicates.

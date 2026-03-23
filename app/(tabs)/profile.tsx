@@ -3,7 +3,8 @@ import { EditProfileModal } from '@/components/edit-profile-modal';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { Colors } from '@/constants/theme';
 import { useAuth } from '@/contexts/AuthContext';
-import { RecommendedTrack, api } from '@/lib/api';
+import { RecommendedTrack, SpotifyArtist, api } from '@/lib/api';
+import AsyncStorage from '@/lib/storage';
 import { supabase } from '@/lib/supabase';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
@@ -20,7 +21,6 @@ import {
   View
 } from 'react-native';
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
 
 function SectionLabel({ children }: { children: string }) {
   return (
@@ -97,16 +97,45 @@ function EmptyState({ message }: { message: string }) {
   );
 }
 
-// ── Spotify status card ───────────────────────────────────────────────────────
+const PROFILE_SCREEN_CACHE_KEY = 'chen_profile_screen_data';
+
+async function loadProfileScreenCache() {
+  try {
+    const raw = await AsyncStorage.getItem(PROFILE_SCREEN_CACHE_KEY);
+    if (!raw) return null;
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+async function saveProfileScreenCache(data: any) {
+  try {
+    await AsyncStorage.setItem(PROFILE_SCREEN_CACHE_KEY, JSON.stringify(data));
+  } catch {
+    // ignore cache save errors
+  }
+}
+
+function dedupeRecentTracks(tracks: any[]) {
+  const seen = new Set<string>();
+  const unique: any[] = [];
+
+  for (const track of tracks) {
+    const key = `${(track.track_name || '').trim().toLowerCase()}::${(track.artist_name || '').trim().toLowerCase()}::${(track.album_name || '').trim().toLowerCase()}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    unique.push(track);
+  }
+
+  return unique;
+}
 
 function SpotifyStatusCard({ connected, loading, onReconnect }: {
   connected: boolean | null;
   loading: boolean;
   onReconnect: () => void;
 }) {
-  const isConnected = connected === true;
-  const accentColor = isConnected ? '#1DB954' : Colors.orange;
-
   return (
     
     // <View style={{
@@ -194,7 +223,7 @@ export default function ProfileScreen() {
   const [spotifyConnected, setSpotifyConnected] = useState<boolean | null>(null);
   const [nowPlaying, setNowPlaying] = useState<any>(null);
   const [recentTracks, setRecentTracks] = useState<any[]>([]);
-  const [topArtists, setTopArtists] = useState<any[]>([]);
+  const [topArtists, setTopArtists] = useState<SpotifyArtist[]>([]);
   const [topTracks, setTopTracks] = useState<any[]>([]);
   const [recommendedTracks, setRecommendedTracks] = useState<RecommendedTrack[]>([]);
   const [friends, setFriends] = useState<any[]>([]);
@@ -229,39 +258,62 @@ export default function ProfileScreen() {
     checkSpotifyConnection();
 
     api.spotify.nowPlaying()
-      .then((data) => setNowPlaying(data))
-      .catch(() => setNowPlaying(null));
+      .then((data) => {
+        setNowPlaying(data);
+      })
+      .catch(() => {
+        // keep existing nowPlaying cached value on error
+      });
 
     api.spotify.recent()
-      .then((data) => setRecentTracks((data || []).slice(0, 10)))
-      .catch(() => setRecentTracks([]));
+      .then((data) => {
+        const unique = dedupeRecentTracks(data || []);
+        setRecentTracks(unique.slice(0, 10));
+      })
+      .catch(() => {
+        // keep existing recentTracks from cache
+      });
 
     api.friends.list()
-      .then((data) => setFriends((data || []).slice(0, 3)))
-      .catch(() => setFriends([]));
+      .then((data) => {
+        setFriends((data || []).slice(0, 3));
+      })
+      .catch(() => {
+        // keep existing friends from cache
+      });
 
     setStatsLoading(true);
     api.profile.stats()
       .then((data) => setStats(data || { minutesListened: 0, artistsPlayed: 0, topGenre: '--' }))
-      .catch(() => setStats({ minutesListened: 0, artistsPlayed: 0, topGenre: '--' }))
+      .catch(() => {
+        // keep existing stats from cache
+      })
       .finally(() => setStatsLoading(false));
 
-    api.profile.topArtists()
+    api.spotify.topArtists('short_term', 5)
       .then((data) => {
-        const normalised = (data || []).map((a: any) => ({
-        ...a, imageUrl: a.image_url || a.imageUrl || null,
-        }));
-        setTopArtists(normalised);
+        const artists = data?.items || [];
+        setTopArtists(artists);
+        const topGenre = deriveTopGenreFromArtists(artists);
+        if (topGenre) {
+          setStats((prev) => ({ ...prev, topGenre }));
+        }
       })
-      .catch(() => setTopArtists([]));
+      .catch(() => {
+        // keep existing topArtists from cache
+      });
 
     api.profile.topTracks()
       .then((data) => setTopTracks(data || []))
-      .catch(() => setTopTracks([]));
+      .catch(() => {
+        // keep existing topTracks from cache
+      });
 
     api.spotify.recommendations()
       .then((data) => setRecommendedTracks(data || []))
-      .catch(() => setRecommendedTracks([]));
+      .catch(() => {
+        // keep existing recommended tracks from cache
+      });
   };
 
   const handleReconnectSpotify = async () => {
@@ -303,7 +355,24 @@ export default function ProfileScreen() {
       return;
     }
 
-    fetchProfileData();
+    const init = async () => {
+      const cached = await loadProfileScreenCache();
+      if (cached) {
+        setSpotifyConnected(cached.spotifyConnected ?? null);
+        setNowPlaying(cached.nowPlaying ?? null);
+        setRecentTracks(dedupeRecentTracks(cached.recentTracks ?? []));
+        setTopArtists(cached.topArtists ?? []);
+        setTopTracks(cached.topTracks ?? []);
+        setRecommendedTracks(cached.recommendedTracks ?? []);
+        setFriends(cached.friends ?? []);
+        setStats(cached.stats ?? { minutesListened: 0, artistsPlayed: 0, topGenre: '--' });
+        setStatsLoading(cached.statsLoading ?? true);
+      }
+
+      await fetchProfileData();
+    };
+
+    init();
   }, [authLoading, user]);
 
   useEffect(() => {
@@ -358,6 +427,20 @@ export default function ProfileScreen() {
       Animated.timing(glowOpacity, { toValue: 0.4, duration: 2000, useNativeDriver: true }),
     ])).start();
   }, []);
+
+  useEffect(() => {
+    saveProfileScreenCache({
+      spotifyConnected,
+      nowPlaying,
+      recentTracks,
+      topArtists,
+      topTracks,
+      recommendedTracks,
+      friends,
+      stats,
+      statsLoading,
+    });
+  }, [spotifyConnected, nowPlaying, recentTracks, topArtists, topTracks, recommendedTracks, friends, stats, statsLoading]);
 
   const handleSignOut = () => {
     Alert.alert('Sign Out', 'Are you sure?', [
@@ -439,10 +522,10 @@ export default function ProfileScreen() {
                   )}
                   <View style={{ flex: 1 }}>
                     <Text style={{ color: Colors.textPrimary, fontSize: 17, fontWeight: '700', marginBottom: 4 }}>
-                      {nowPlaying?.track_name || 'Nothing playing'}
+                      {nowPlaying?.track_name || "Nothing's playing rn"} 
                     </Text>
                     <Text style={{ color: Colors.textSecondary, fontSize: 14 }}>
-                      {nowPlaying?.artist_name || '--'}
+                      {nowPlaying?.artist_name || "and no one's singing either"}
                     </Text>
                   </View>
                   {nowPlaying?.is_playing && <EqualizerBars />}
@@ -492,8 +575,8 @@ export default function ProfileScreen() {
                 <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginHorizontal: -4 }}>
                   {topArtists.slice(0, 5).map((artist, i) => (
                     <Pressable key={i} style={{ width: 120, height: 130, borderRadius: 18, overflow: 'hidden', marginHorizontal: 5, borderWidth: 1, borderColor: 'rgba(232,100,10,0.1)' }}>
-                      {artist.imageUrl ? (
-                        <Image source={{ uri: artist.imageUrl }} style={{ width: '100%', height: '100%', position: 'absolute' }} />
+                      {artist.images?.[0]?.url ? (
+                        <Image source={{ uri: artist.images[0].url }} style={{ width: '100%', height: '100%', position: 'absolute' }} />
                       ) : (
                         <View style={{ width: '100%', height: '100%', position: 'absolute', backgroundColor: 'rgba(255,255,255,0.06)', alignItems: 'center', justifyContent: 'center' }}>
                           <Text style={{ color: Colors.textMuted, fontSize: 24 }}>♪</Text>
@@ -534,24 +617,61 @@ export default function ProfileScreen() {
 
           {/* Recently Played */}
           <FadeSlide delay={400}>
-            <View>
+            <View className="pb-6">
               <SectionLabel>Recently Played</SectionLabel>
               {recentTracks.length > 0 ? (
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginHorizontal: -4 }}>
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={{ paddingHorizontal: 2, paddingRight: 14 }}
+                >
                   {recentTracks.map((track, i) => (
-                    <Pressable key={i} style={{ marginHorizontal: 5, width: 78 }}>
-                      <Image source={{ uri: track.album_art_url }} style={{ width: 78, height: 78, borderRadius: 14, borderWidth: 1, borderColor: 'rgba(232,100,10,0.1)' }} />
+                    <Pressable
+                      key={i}
+                      style={{
+                        width: 112,
+                        marginRight: 12,
+                      }}
+                    >
+                      <Image
+                        source={{ uri: track.album_art_url }}
+                        style={{
+                          width: 112,
+                          height: 120,
+                          borderRadius: 7,
+                          borderWidth: 1,
+                          borderColor: 'rgba(232,100,10,0.14)',
+                          marginBottom: 10,
+                        }}
+                      />
                       <Text
-                        numberOfLines={1}
-                        style={{ color: Colors.orange, fontSize: 11, fontWeight: '700', marginTop: 8, textAlign: 'center' }}
+                        numberOfLines={3}
+                        style={{
+                          color: Colors.white,
+                          fontSize: 12,
+                          fontWeight: '700',
+                          lineHeight: 16,
+                          marginBottom: 4,
+                          minHeight: 32,
+                        }}
                       >
                         {track.track_name}
+                      </Text>
+                      <Text
+                        numberOfLines={1}
+                        style={{
+                          color: Colors.orange,
+                          fontSize: 11,
+                          fontWeight: '600'
+                        }}
+                      >
+                        {track.artist_name}
                       </Text>
                     </Pressable>
                   ))}
                 </ScrollView>
               ) : (
-                <View style={{ height: 78, borderRadius: 14, backgroundColor: 'rgba(255,255,255,0.03)', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: 'rgba(232,100,10,0.08)' }}>
+                <View style={{ height: 126, borderRadius: 20, backgroundColor: 'rgba(255,255,255,0.03)', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: 'rgba(232,100,10,0.08)' }}>
                   <Text style={{ color: Colors.textMuted, fontSize: 13 }}>No recent tracks</Text>
                 </View>
               )}
@@ -560,20 +680,85 @@ export default function ProfileScreen() {
 
           {/* Recommended Tracks */}
           <FadeSlide delay={460}>
-            <View>
+            <View className="pb-6">
               <SectionLabel>Recommended Tracks</SectionLabel>
-              {recommendedTracks.length >= 3 ? (
-                <View style={{ flexDirection: 'row', gap: 10 }}>
-                  {recommendedTracks.slice(0, 3).map((track, i) => (
-                    <Card key={i} style={{ flex: 1, alignItems: 'center', padding: 12 }}>
-                      <Image source={{ uri: track.album_art }} style={{ width: 56, height: 56, borderRadius: 12, marginBottom: 10 }} />
-                      <Text numberOfLines={1} style={{ color: Colors.textPrimary, fontSize: 11, fontWeight: '700', textAlign: 'center', marginBottom: 2 }}>{track.name}</Text>
-                      <Text numberOfLines={1} style={{ color: Colors.textMuted, fontSize: 10, textAlign: 'center' }}>{track.artist}</Text>
-                    </Card>
+              {recommendedTracks.length > 0 ? (
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={{ paddingHorizontal: 2, paddingRight: 14 }}
+                >
+                  {recommendedTracks.slice(0, 6).map((track, i) => (
+                    <Pressable
+                      key={i}
+                      style={{
+                        width: 144,
+                        marginRight: 12,
+                      }}
+                    >
+                      <View style={{ position: 'relative', borderRadius: 24, overflow: 'hidden' }}>
+                        <Image
+                          source={{ uri: track.album_art }}
+                          style={{ width: '100%', height: 138 }}
+                        />
+                        <LinearGradient
+                          colors={['transparent', 'rgba(7,8,12,0.88)']}
+                          style={{
+                            position: 'absolute',
+                            left: 0,
+                            right: 0,
+                            bottom: 0,
+                            height: 70,
+                          }}
+                        />
+                        <View
+                          style={{
+                            position: 'absolute',
+                            top: 10,
+                            right: 10,
+                            paddingHorizontal: 8,
+                            paddingVertical: 4,
+                            borderRadius: 999,
+                            backgroundColor: 'rgba(7,8,12,0.62)',
+                            borderWidth: 1,
+                            borderColor: 'rgba(255,255,255,0.12)',
+                          }}
+                        >
+                          <Text style={{ color: Colors.orange, fontSize: 10, fontWeight: '700' }}>
+                            #{i + 1}
+                          </Text>
+                        </View>
+                      </View>
+
+                      <Text
+                        numberOfLines={2}
+                        style={{
+                          color: Colors.textPrimary,
+                          fontSize: 13,
+                          fontWeight: '700',
+                          lineHeight: 17,
+                          minHeight: 34,
+                          marginTop: 10,
+                          marginBottom: 4,
+                        }}
+                      >
+                        {track.name}
+                      </Text>
+                      <Text
+                        numberOfLines={1}
+                        style={{
+                          color: Colors.orange,
+                          fontSize: 11,
+                          fontWeight: '600',
+                        }}
+                      >
+                        {track.artist}
+                      </Text>
+                    </Pressable>
                   ))}
-                </View>
+                </ScrollView>
               ) : (
-                <View style={{ height: 100, borderRadius: 20, backgroundColor: 'rgba(255,255,255,0.03)', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: 'rgba(232,100,10,0.08)' }}>
+                <View style={{ height: 126, borderRadius: 20, backgroundColor: 'rgba(255,255,255,0.03)', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: 'rgba(232,100,10,0.08)' }}>
                   <Text style={{ color: Colors.textMuted, fontSize: 13 }}>No recommendations yet</Text>
                 </View>
               )}
@@ -617,4 +802,27 @@ export default function ProfileScreen() {
       />
     </View>
   );
+}
+
+function deriveTopGenreFromArtists(artists: SpotifyArtist[]) {
+  const genreCounts: Record<string, number> = {};
+  let topGenre = '';
+  let topCount = 0;
+
+  for (const artist of artists) {
+    for (const genre of artist.genres || []) {
+      const normalized = genre.trim().toLowerCase();
+      if (!normalized) {
+        continue;
+      }
+
+      genreCounts[normalized] = (genreCounts[normalized] || 0) + 1;
+      if (genreCounts[normalized] > topCount) {
+        topCount = genreCounts[normalized];
+        topGenre = genre;
+      }
+    }
+  }
+
+  return topGenre;
 }
