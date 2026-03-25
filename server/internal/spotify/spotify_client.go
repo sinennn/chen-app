@@ -20,6 +20,7 @@ const (
 	topDataTTL          = 12 * time.Hour
 	recommendationsTTL  = 6 * time.Hour
 	artistLookupTTL     = 7 * 24 * time.Hour
+	trackLookupTTL      = 7 * 24 * time.Hour
 )
 
 type SpotifyClient struct {
@@ -29,10 +30,13 @@ type SpotifyClient struct {
 }
 
 type Track struct {
+	ID         string `json:"track_id,omitempty"`
 	Name       string `json:"name"`
 	Artist     string `json:"artist"`
 	Album      string `json:"album"`
 	AlbumArt   string `json:"album_art_url"`
+	SpotifyURL string `json:"spotify_url,omitempty"`
+	PreviewURL string `json:"preview_url,omitempty"`
 	IsPlaying  bool   `json:"is_playing"`
 	ProgressMs int    `json:"progress_ms,omitempty"`
 	DurationMs int    `json:"duration_ms,omitempty"`
@@ -90,6 +94,10 @@ type SpotifyTopArtistsResponse struct {
 	Previous *string             `json:"previous"`
 }
 
+type SpotifyArtistsLookupResponse struct {
+	Artists []SpotifyArtistItem `json:"artists"`
+}
+
 type PlaylistTrack struct {
 	Name     string `json:"name"`
 	Artist   string `json:"artist"`
@@ -120,7 +128,12 @@ type CurrentlyPlayingResponse struct {
 	IsPlaying  bool `json:"is_playing"`
 	ProgressMs int  `json:"progress_ms"`
 	Item       struct {
-		Name  string `json:"name"`
+		ID           string `json:"id"`
+		Name         string `json:"name"`
+		PreviewURL   string `json:"preview_url"`
+		ExternalURLs struct {
+			Spotify string `json:"spotify"`
+		} `json:"external_urls"`
 		Album struct {
 			Name   string `json:"name"`
 			Images []struct {
@@ -136,9 +149,14 @@ type CurrentlyPlayingResponse struct {
 type RecentlyPlayedResponse struct {
 	Items []struct {
 		Track struct {
-			Name       string `json:"name"`
-			DurationMs int    `json:"duration_ms"`
-			Album      struct {
+			ID           string `json:"id"`
+			Name         string `json:"name"`
+			DurationMs   int    `json:"duration_ms"`
+			PreviewURL   string `json:"preview_url"`
+			ExternalURLs struct {
+				Spotify string `json:"spotify"`
+			} `json:"external_urls"`
+			Album struct {
 				Name   string `json:"name"`
 				Images []struct {
 					URL string `json:"url"`
@@ -183,6 +201,24 @@ type ArtistSearchResponse struct {
 
 type ArtistDetailsResponse struct {
 	Genres []string `json:"genres"`
+}
+
+type TrackDetailsResponse struct {
+	ID           string `json:"id"`
+	Name         string `json:"name"`
+	PreviewURL   string `json:"preview_url"`
+	ExternalURLs struct {
+		Spotify string `json:"spotify"`
+	} `json:"external_urls"`
+	Album struct {
+		Name   string `json:"name"`
+		Images []struct {
+			URL string `json:"url"`
+		} `json:"images"`
+	} `json:"album"`
+	Artists []struct {
+		Name string `json:"name"`
+	} `json:"artists"`
 }
 
 func NewSpotifyClient(userID, accessToken string) *SpotifyClient {
@@ -258,8 +294,11 @@ func (sc *SpotifyClient) GetCurrentlyPlaying() (*Track, error) {
 			}
 
 			result := &Track{
+				ID:         response.Item.ID,
 				IsPlaying:  response.IsPlaying,
 				ProgressMs: response.ProgressMs,
+				PreviewURL: response.Item.PreviewURL,
+				SpotifyURL: response.Item.ExternalURLs.Spotify,
 			}
 			if response.Item.Name != "" {
 				result.Name = response.Item.Name
@@ -300,9 +339,12 @@ func (sc *SpotifyClient) GetRecentlyPlayed() ([]Track, error) {
 				}
 
 				track := Track{
+					ID:         item.Track.ID,
 					Name:       item.Track.Name,
 					Album:      item.Track.Album.Name,
 					Artist:     item.Track.Artists[0].Name,
+					SpotifyURL: item.Track.ExternalURLs.Spotify,
+					PreviewURL: item.Track.PreviewURL,
 					DurationMs: item.Track.DurationMs,
 					PlayedAt:   item.PlayedAt,
 				}
@@ -533,6 +575,7 @@ func (sc *SpotifyClient) GetTopArtistsRaw(timeRange string, limit int) (*Spotify
 				return err
 			}
 
+			sc.populateMissingGenresInTopArtistResponse(&parsed)
 			response = &parsed
 			return nil
 		})
@@ -694,6 +737,42 @@ func (sc *SpotifyClient) GetArtistGenresByID(artistID string) ([]string, error) 
 	})
 }
 
+func (sc *SpotifyClient) GetTrackDetails(trackID string) (*Track, error) {
+	normalized := strings.TrimSpace(trackID)
+	if normalized == "" {
+		return nil, nil
+	}
+
+	return loadSharedResource(sharedSpotifyCache, sc.cacheKey("track-details:"+normalized), trackLookupTTL, func() (*Track, error) {
+		requestURL := "https://api.spotify.com/v1/tracks/" + url.PathEscape(normalized)
+		body, _, err := sc.doRequest("track-details", http.MethodGet, requestURL, nil, nil)
+		if err != nil {
+			return nil, err
+		}
+
+		var response TrackDetailsResponse
+		if err := json.Unmarshal(body, &response); err != nil {
+			return nil, err
+		}
+
+		track := &Track{
+			ID:         response.ID,
+			Name:       response.Name,
+			Album:      response.Album.Name,
+			PreviewURL: response.PreviewURL,
+			SpotifyURL: response.ExternalURLs.Spotify,
+		}
+		if len(response.Artists) > 0 {
+			track.Artist = response.Artists[0].Name
+		}
+		if len(response.Album.Images) > 0 {
+			track.AlbumArt = response.Album.Images[0].URL
+		}
+
+		return track, nil
+	})
+}
+
 func toStringValue(value any) string {
 	if value == nil {
 		return ""
@@ -730,4 +809,116 @@ func hasAnyGenresInTopArtistResponse(response *SpotifyTopArtistsResponse) bool {
 	}
 
 	return false
+}
+
+func (sc *SpotifyClient) populateMissingGenresInTopArtistResponse(response *SpotifyTopArtistsResponse) {
+	if response == nil {
+		return
+	}
+
+	sc.populateMissingGenresFromBatchArtistLookup(response)
+
+	for i := range response.Items {
+		if len(response.Items[i].Genres) > 0 {
+			continue
+		}
+
+		if response.Items[i].ID != "" {
+			genres, err := sc.GetArtistGenresByID(response.Items[i].ID)
+			if err == nil && len(genres) > 0 {
+				response.Items[i].Genres = genres
+				continue
+			}
+		}
+
+		if response.Items[i].Name == "" {
+			continue
+		}
+
+		genres, err := sc.GetArtistGenres(response.Items[i].Name)
+		if err == nil && len(genres) > 0 {
+			response.Items[i].Genres = genres
+		}
+	}
+}
+
+func (sc *SpotifyClient) populateMissingGenresFromBatchArtistLookup(response *SpotifyTopArtistsResponse) {
+	if response == nil {
+		return
+	}
+
+	missingIDs := make([]string, 0, len(response.Items))
+	for _, item := range response.Items {
+		if item.ID == "" || len(item.Genres) > 0 {
+			continue
+		}
+
+		missingIDs = append(missingIDs, item.ID)
+	}
+
+	if len(missingIDs) == 0 {
+		return
+	}
+
+	// Spotify accepts up to 50 IDs for the batch artists lookup.
+	for start := 0; start < len(missingIDs); start += 50 {
+		end := min(start+50, len(missingIDs))
+		genresByID, err := sc.getArtistGenresBatch(missingIDs[start:end])
+		if err != nil {
+			continue
+		}
+
+		for i := range response.Items {
+			if len(response.Items[i].Genres) > 0 || response.Items[i].ID == "" {
+				continue
+			}
+
+			if genres := genresByID[response.Items[i].ID]; len(genres) > 0 {
+				response.Items[i].Genres = genres
+			}
+		}
+	}
+}
+
+func (sc *SpotifyClient) getArtistGenresBatch(artistIDs []string) (map[string][]string, error) {
+	normalizedIDs := make([]string, 0, len(artistIDs))
+	seen := make(map[string]struct{}, len(artistIDs))
+	for _, artistID := range artistIDs {
+		normalized := strings.TrimSpace(artistID)
+		if normalized == "" {
+			continue
+		}
+		if _, exists := seen[normalized]; exists {
+			continue
+		}
+
+		seen[normalized] = struct{}{}
+		normalizedIDs = append(normalizedIDs, normalized)
+	}
+
+	if len(normalizedIDs) == 0 {
+		return map[string][]string{}, nil
+	}
+
+	requestURL := "https://api.spotify.com/v1/artists?ids=" + strings.Join(normalizedIDs, ",")
+	body, _, err := sc.doRequest("artist-details-batch", http.MethodGet, requestURL, nil, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var response SpotifyArtistsLookupResponse
+	if err := json.Unmarshal(body, &response); err != nil {
+		return nil, err
+	}
+
+	genresByID := make(map[string][]string, len(response.Artists))
+	for _, artist := range response.Artists {
+		if artist.ID == "" || len(artist.Genres) == 0 {
+			continue
+		}
+
+		genresByID[artist.ID] = artist.Genres
+	}
+
+	return genresByID, nil
 }

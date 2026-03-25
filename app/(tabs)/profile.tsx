@@ -216,8 +216,6 @@ function SpotifyStatusCard({ connected, loading, onReconnect }: {
   );
 }
 
-// ── Screen ────────────────────────────────────────────────────────────────────
-
 export default function ProfileScreen() {
   const { user, profile, signOut, refreshProfile, loading: authLoading } = useAuth();
   const [spotifyConnected, setSpotifyConnected] = useState<boolean | null>(null);

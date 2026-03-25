@@ -48,7 +48,8 @@
           "iosUrlScheme": "com.googleusercontent.apps.828415068706-in90q15j4927og8vim2c3k4a55dscbct"
         }
       ],
-      "expo-apple-authentication"
+      "expo-apple-authentication",
+      "expo-audio"
     ],
     "experiments": {
       "typedRoutes": true

@@ -1,10 +1,10 @@
+//@ts-nocheck
 import { Platform } from 'react-native';
 
 let AsyncStorage: any;
 
 if (Platform.OS === 'web') {
-  // For web, use a simple localStorage wrapper
-  AsyncStorage = {
+    AsyncStorage = {
     getItem: async (key: string) => {
       try {
         return localStorage.getItem(key);

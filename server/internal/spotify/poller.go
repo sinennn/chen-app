@@ -4,12 +4,14 @@ import (
 	"encoding/json"
 	"errors"
 	"log"
+	"strings"
 	"sync"
 	"time"
 
 	"chen/pkg/supabase"
 
 	"github.com/supabase-community/postgrest-go"
+	supabaseapi "github.com/supabase-community/supabase-go"
 )
 
 type UserTrackCache struct {
@@ -30,6 +32,7 @@ var (
 
 func StartPoller() {
 	log.Println("Starting Spotify real-time polling service...")
+	pollAllUsers()
 
 	ticker := time.NewTicker(pollerTickInterval)
 	defer ticker.Stop()
@@ -37,6 +40,14 @@ func StartPoller() {
 	for range ticker.C {
 		pollAllUsers()
 	}
+}
+
+func PollUserActivityNow(userID string) error {
+	if userID == "" {
+		return nil
+	}
+
+	return pollUserActivity(userID)
 }
 
 func pollAllUsers() {
@@ -126,20 +137,29 @@ func pollUserActivity(userID string) error {
 
 	if shouldInsert {
 		client := supabase.GetClient()
+		if exists && trackChanged && previousState.IsPlaying && previousState.TrackName != "" {
+			if err := finalizeLatestListeningActivity(client, userID, now, 0); err != nil {
+				log.Printf("Error finalizing previous track for user %s: %v", userID, err)
+			}
+		}
 
 		activityData := map[string]interface{}{
 			"user_id":       userID,
+			"track_id":      track.ID,
 			"track_name":    track.Name,
 			"artist_name":   track.Artist,
 			"album_name":    track.Album,
 			"album_art_url": track.AlbumArt,
+			"spotify_url":   track.SpotifyURL,
+			"preview_url":   track.PreviewURL,
 			"is_playing":    track.IsPlaying,
 			"progress_ms":   track.ProgressMs,
-			"played_at":     time.Now().Format(time.RFC3339),
+			"started_at":    estimateStartedAt(track, now).Format(time.RFC3339),
+			"played_at":     now.Format(time.RFC3339),
 			"platform":      "spotify",
 		}
 
-		_, _, err = client.From("listening_activity").Insert(activityData, false, "", "", "").Execute()
+		_, _, err = insertListeningActivity(client, activityData)
 		if err != nil {
 			return err
 		}
@@ -149,32 +169,68 @@ func pollUserActivity(userID string) error {
 	} else if exists && previousState.IsPlaying != track.IsPlaying {
 		// Update the most recent activity for this user if playback state changed
 		client := supabase.GetClient()
-
-		updateData := map[string]interface{}{
-			"is_playing": track.IsPlaying,
-		}
-
-		// If the song stopped playing, update the played_at to reflect when it stopped
 		if !track.IsPlaying {
-			updateData["played_at"] = time.Now().Format(time.RFC3339)
-		}
-
-		_, _, err := client.From("listening_activity").
-			Update(updateData, "", "").
-			Eq("user_id", userID).
-			Order("played_at", &postgrest.OrderOpts{Ascending: false}).
-			Limit(1, "").
-			Execute()
-
-		if err != nil {
-			log.Printf("Error updating playback state for user %s: %v", userID, err)
+			if err := finalizeLatestListeningActivity(client, userID, now, track.ProgressMs); err != nil {
+				log.Printf("Error updating playback state for user %s: %v", userID, err)
+			} else {
+				log.Printf("Updated playback state for user %s: %s - %s (playing: %v)",
+					userID, track.Artist, track.Name, track.IsPlaying)
+			}
 		} else {
-			log.Printf("Updated playback state for user %s: %s - %s (playing: %v)",
-				userID, track.Artist, track.Name, track.IsPlaying)
+			updateData := map[string]interface{}{
+				"is_playing": track.IsPlaying,
+			}
+
+			if track.ProgressMs > 0 {
+				updateData["progress_ms"] = track.ProgressMs
+			}
+
+			_, _, err := client.From("listening_activity").
+				Update(updateData, "", "").
+				Eq("user_id", userID).
+				Order("played_at", &postgrest.OrderOpts{Ascending: false}).
+				Limit(1, "").
+				Execute()
+
+			if err != nil {
+				log.Printf("Error updating playback state for user %s: %v", userID, err)
+			} else {
+				log.Printf("Updated playback state for user %s: %s - %s (playing: %v)",
+					userID, track.Artist, track.Name, track.IsPlaying)
+			}
 		}
 	}
 
 	return nil
+}
+
+func estimateStartedAt(track *Track, observedAt time.Time) time.Time {
+	if track == nil || track.ProgressMs <= 0 {
+		return observedAt
+	}
+
+	return observedAt.Add(-time.Duration(track.ProgressMs) * time.Millisecond)
+}
+
+func finalizeLatestListeningActivity(client *supabaseapi.Client, userID string, playedAt time.Time, progressMs int) error {
+	updateData := map[string]interface{}{
+		"is_playing": false,
+		"played_at":  playedAt.Format(time.RFC3339),
+	}
+
+	if progressMs > 0 {
+		updateData["progress_ms"] = progressMs
+	}
+
+	_, _, err := client.From("listening_activity").
+		Update(updateData, "", "").
+		Eq("user_id", userID).
+		Eq("is_playing", "true").
+		Order("played_at", &postgrest.OrderOpts{Ascending: false}).
+		Limit(1, "").
+		Execute()
+
+	return err
 }
 
 func shouldPollUser(userID string, now time.Time) bool {
@@ -270,16 +326,19 @@ func StoreRecentlyPlayed(userID, accessToken string) error {
 
 		activityData := map[string]interface{}{
 			"user_id":       userID,
+			"track_id":      track.ID,
 			"track_name":    track.Name,
 			"artist_name":   track.Artist,
 			"album_name":    track.Album,
 			"album_art_url": track.AlbumArt,
+			"spotify_url":   track.SpotifyURL,
+			"preview_url":   track.PreviewURL,
 			"is_playing":    false,
 			"played_at":     track.PlayedAt,
 			"platform":      "spotify",
 		}
 
-		_, _, err = client.From("listening_activity").Insert(activityData, false, "", "", "").Execute()
+		_, _, err = insertListeningActivity(client, activityData)
 		if err != nil {
 			log.Printf("Error storing recent track: %v", err)
 			continue
@@ -287,4 +346,60 @@ func StoreRecentlyPlayed(userID, accessToken string) error {
 	}
 
 	return nil
+}
+
+func insertListeningActivity(client *supabaseapi.Client, activityData map[string]interface{}) ([]byte, int64, error) {
+	data, count, err := client.From("listening_activity").Insert(activityData, false, "", "", "").Execute()
+	if err == nil {
+		return data, count, err
+	}
+
+	if isTrackIDUUIDMismatchError(err) {
+		legacyTrackActivityData := make(map[string]interface{}, len(activityData))
+		for key, value := range activityData {
+			legacyTrackActivityData[key] = value
+		}
+		delete(legacyTrackActivityData, "track_id")
+
+		return client.From("listening_activity").Insert(legacyTrackActivityData, false, "", "", "").Execute()
+	}
+
+	if !isMissingListeningActivityMetadataColumnError(err) {
+		return data, count, err
+	}
+
+	legacyActivityData := make(map[string]interface{}, len(activityData))
+	for key, value := range activityData {
+		legacyActivityData[key] = value
+	}
+	delete(legacyActivityData, "track_id")
+	delete(legacyActivityData, "spotify_url")
+	delete(legacyActivityData, "preview_url")
+
+	return client.From("listening_activity").Insert(legacyActivityData, false, "", "", "").Execute()
+}
+
+func isMissingListeningActivityMetadataColumnError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	message := strings.ToLower(err.Error())
+	if !strings.Contains(message, "listening_activity") {
+		return false
+	}
+
+	return strings.Contains(message, "preview_url") ||
+		strings.Contains(message, "spotify_url") ||
+		strings.Contains(message, "track_id")
+}
+
+func isTrackIDUUIDMismatchError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	message := strings.ToLower(err.Error())
+	return strings.Contains(message, "invalid input syntax for type uuid") &&
+		(strings.Contains(message, "track_id") || strings.Contains(message, "spotify"))
 }

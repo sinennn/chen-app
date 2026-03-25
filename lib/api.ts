@@ -5,14 +5,73 @@ export type ActivityItem = {
   user_id: string;
   username: string;
   avatar_id: string;
+  track_id?: string;
   track_name: string;
   artist_name: string;
   album_name: string;
   album_art_url: string;
+  spotify_url?: string;
+  preview_url?: string;
   platform: 'spotify';
   started_at: string;
   played_at?: string;
   is_playing: boolean;
+};
+
+export type PublicProfileUser = {
+  id: string;
+  username: string;
+  user_tag?: string;
+  avatar_id: string;
+};
+
+export type PublicProfileStats = {
+  totalPlays: number;
+  artistsPlayed: number;
+  topArtist: string;
+};
+
+export type PublicProfileData = {
+  user: PublicProfileUser;
+  stats: PublicProfileStats;
+  nowPlaying: ActivityItem | null;
+  recentTracks: ActivityItem[];
+  topTracks: Array<{
+    name: string;
+    artist: string;
+    playCount: number;
+    imageUrl: string;
+  }>;
+  topArtists: Array<{
+    name: string;
+    playCount: number;
+    imageUrl: string;
+    genres?: string[];
+  }>;
+};
+
+export type ActivityComment = {
+  id: string;
+  user_id: string;
+  username: string;
+  avatar_id: string;
+  content: string;
+  parent_comment_id: string | null;
+  created_at: string;
+};
+
+export type FeedEngagement = {
+  commentCount: number;
+  reactions: {
+    love: number;
+    fire: number;
+    headphones: number;
+  };
+  userReactions: {
+    love: boolean;
+    fire: boolean;
+    headphones: boolean;
+  };
 };
 
 export type Friend = {
@@ -151,6 +210,24 @@ export const api = {
     stats: () => getJSON<any>('/profile/stats'),
     topArtists: () => getJSON<any[]>('/profile/top-artists'),
     topTracks: () => getJSON<any[]>('/profile/top-tracks'),
+    user: (userId: string) => getJSON<PublicProfileData>(`/profile/users/${encodeURIComponent(userId)}`),
+  },
+  reactions: {
+    engagement: (activityIds: string[]) =>
+      getJSON<Record<string, FeedEngagement>>(`/reactions/engagement?activity_ids=${encodeURIComponent(activityIds.join(','))}`),
+    comments: (activityId: string) =>
+      getJSON<ActivityComment[]>(`/reactions/comments/${encodeURIComponent(activityId)}`),
+    createComment: (activityId: string, content: string, parentCommentId?: string | null) =>
+      postJSON('/reactions/comments', {
+        activity_id: activityId,
+        content,
+        parent_comment_id: parentCommentId || undefined,
+      }),
+    toggle: (activityId: string, reactionType: 'love' | 'fire' | 'headphones') =>
+      postJSON<{ active: boolean }>('/reactions/toggle', {
+        activity_id: activityId,
+        reaction_type: reactionType,
+      }),
   },
   chen: {
     chat: (message: string, history: any[]) => postJSON<ChatResponse>('/chen/chat', { message, history }),

@@ -16,7 +16,6 @@ import (
 	"log"
 	"net/http"
 	"os"
-
 	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
 )
@@ -27,26 +26,21 @@ func main() {
 		log.Println("Warning: .env file not found, using system environment variables")
 	}
 
-	// Initialize Supabase client
 	if err := supabase.InitClient(); err != nil {
 		log.Printf("Warning: Failed to initialize Supabase client: %v", err)
 	} else {
 		log.Println("Supabase client initialized successfully")
 	}
 
-	// Start Spotify polling service
+	// concurrency!!!!!
 	go spotify.StartPoller()
 
-	// Get PORT from environment variable, default to 8080
-	port := os.Getenv("PORT")
+		port := os.Getenv("PORT")
 	if port == "" {
 		port = "8080"
 	}
 
-	// Create Gin router with default middleware
 	router := gin.Default()
-
-	// Add CORS middleware for development
 	router.Use(func(c *gin.Context) {
 		c.Header("Access-Control-Allow-Origin", "*")
 		c.Header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
@@ -75,7 +69,7 @@ func main() {
 		protected := v1.Group("")
 		protected.Use(auth.JWTMiddleware())
 		{
-			// Protected auth routes (JWT required)
+	
 			auth.RegisterProtectedRoutes(protected.Group("/auth"))
 
 			spotify.RegisterRoutes(protected.Group("/spotify"))
@@ -91,7 +85,6 @@ func main() {
 		}
 	}
 
-	// Start server
 	log.Printf("Server starting on port %s", port)
 	if err := router.Run(":" + port); err != nil {
 		log.Fatalf("Failed to start server: %v", err)

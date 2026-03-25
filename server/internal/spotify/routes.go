@@ -23,10 +23,13 @@ type ActivityItem struct {
 	UserID      string    `json:"user_id"`
 	Username    string    `json:"username"`
 	AvatarID    string    `json:"avatar_id"`
+	TrackID     string    `json:"track_id,omitempty"`
 	TrackName   string    `json:"track_name"`
 	ArtistName  string    `json:"artist_name"`
 	AlbumName   string    `json:"album_name"`
 	AlbumArtURL string    `json:"album_art_url"`
+	SpotifyURL  string    `json:"spotify_url,omitempty"`
+	PreviewURL  string    `json:"preview_url,omitempty"`
 	Platform    string    `json:"platform"`
 	StartedAt   time.Time `json:"started_at"`
 	IsPlaying   bool      `json:"is_playing"`
@@ -114,10 +117,13 @@ func handleNowPlaying(c *gin.Context) {
 
 	c.JSON(http.StatusOK, ActivityItem{
 		UserID:      userID,
+		TrackID:     track.ID,
 		TrackName:   track.Name,
 		ArtistName:  track.Artist,
 		AlbumName:   track.Album,
 		AlbumArtURL: track.AlbumArt,
+		SpotifyURL:  track.SpotifyURL,
+		PreviewURL:  track.PreviewURL,
 		Platform:    "spotify",
 		StartedAt:   time.Now(),
 		IsPlaying:   track.IsPlaying,
@@ -164,10 +170,13 @@ func handleRecent(c *gin.Context) {
 		playedAt, _ := time.Parse(time.RFC3339, track.PlayedAt)
 		activities = append(activities, ActivityItem{
 			UserID:      userID,
+			TrackID:     track.ID,
 			TrackName:   track.Name,
 			ArtistName:  track.Artist,
 			AlbumName:   track.Album,
 			AlbumArtURL: track.AlbumArt,
+			SpotifyURL:  track.SpotifyURL,
+			PreviewURL:  track.PreviewURL,
 			Platform:    "spotify",
 			StartedAt:   playedAt,
 			IsPlaying:   false,

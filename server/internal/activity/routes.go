@@ -4,13 +4,16 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"chen/internal/friends"
+	"chen/internal/spotify"
 	"chen/pkg/supabase"
 
 	"github.com/gin-gonic/gin"
 	"github.com/supabase-community/postgrest-go"
+	supabaseapi "github.com/supabase-community/supabase-go"
 )
 
 type ActivityItem struct {
@@ -18,10 +21,13 @@ type ActivityItem struct {
 	UserID      string    `json:"user_id"`
 	Username    string    `json:"username"`
 	AvatarID    string    `json:"avatar_id"`
+	TrackID     string    `json:"track_id,omitempty"`
 	TrackName   string    `json:"track_name"`
 	ArtistName  string    `json:"artist_name"`
 	AlbumName   string    `json:"album_name"`
 	AlbumArtURL string    `json:"album_art_url"`
+	SpotifyURL  string    `json:"spotify_url,omitempty"`
+	PreviewURL  string    `json:"preview_url,omitempty"`
 	Platform    string    `json:"platform"`
 	StartedAt   time.Time `json:"started_at"`
 	PlayedAt    time.Time `json:"played_at"`
@@ -57,26 +63,24 @@ func getFeed(c *gin.Context) {
 		return
 	}
 
-	visibleUserIDs := append(friendIDs, userIDStr)
+	visibleUserIDs := uniqueStrings(append(friendIDs, userIDStr))
+	refreshFeedUsers(visibleUserIDs)
 	activityQuery := `
 		id,
 		user_id,
+		track_id,
 		track_name,
 		artist_name,
 		album_name,
 		album_art_url,
+		spotify_url,
+		preview_url,
 		platform,
 		played_at,
 		is_playing
 	`
 
-	data, _, err := client.From("listening_activity").
-		Select(activityQuery, "", false).
-		In("user_id", visibleUserIDs).
-		Eq("is_playing", "true").
-		Order("played_at", &postgrest.OrderOpts{Ascending: false}).
-		Limit(50, "").
-		Execute()
+	data, _, err := selectListeningActivity(client, visibleUserIDs, activityQuery)
 
 	if err != nil {
 		fmt.Printf("Error fetching global feed: %v\n", err)
@@ -134,10 +138,13 @@ func getFeed(c *gin.Context) {
 			UserID:      fmt.Sprintf("%v", activity["user_id"]),
 			Username:    toString(userInfo["username"]),
 			AvatarID:    toString(userInfo["avatar_id"]),
+			TrackID:     toString(activity["track_id"]),
 			TrackName:   fmt.Sprintf("%v", activity["track_name"]),
 			ArtistName:  fmt.Sprintf("%v", activity["artist_name"]),
 			AlbumName:   fmt.Sprintf("%v", activity["album_name"]),
 			AlbumArtURL: fmt.Sprintf("%v", activity["album_art_url"]),
+			SpotifyURL:  toString(activity["spotify_url"]),
+			PreviewURL:  toString(activity["preview_url"]),
 			Platform:    fmt.Sprintf("%v", activity["platform"]),
 			StartedAt:   playedAt,
 			PlayedAt:    playedAt,
@@ -147,8 +154,119 @@ func getFeed(c *gin.Context) {
 		feedItems = append(feedItems, feedItem)
 	}
 
+	hydrateFeedTrackMetadata(feedItems)
+
 	fmt.Printf("Returning %d global feed items for user: %s\n", len(feedItems), userIDStr)
 	c.JSON(http.StatusOK, feedItems)
+}
+
+func refreshFeedUsers(userIDs []string) {
+	for _, visibleUserID := range userIDs {
+		if err := spotify.PollUserActivityNow(visibleUserID); err != nil && !spotify.IsRateLimitError(err) {
+			fmt.Printf("Error refreshing feed activity for user %s: %v\n", visibleUserID, err)
+		}
+	}
+}
+
+func hydrateFeedTrackMetadata(feedItems []ActivityItem) {
+	trackCache := make(map[string]*spotify.Track)
+	clientCache := make(map[string]*spotify.SpotifyClient)
+	clientAttempted := make(map[string]struct{})
+
+	for i := range feedItems {
+		if feedItems[i].TrackID == "" {
+			continue
+		}
+		if feedItems[i].PreviewURL != "" && feedItems[i].SpotifyURL != "" {
+			continue
+		}
+
+		details, seen := trackCache[feedItems[i].TrackID]
+		if !seen {
+			if _, attempted := clientAttempted[feedItems[i].UserID]; !attempted {
+				clientAttempted[feedItems[i].UserID] = struct{}{}
+
+				spotifyClient, _, err := spotify.GetAuthorizedClient(feedItems[i].UserID)
+				if err == nil {
+					clientCache[feedItems[i].UserID] = spotifyClient
+				}
+			}
+
+			spotifyClient := clientCache[feedItems[i].UserID]
+			if spotifyClient == nil {
+				trackCache[feedItems[i].TrackID] = nil
+				continue
+			}
+
+			lookup, err := spotifyClient.GetTrackDetails(feedItems[i].TrackID)
+			if err != nil {
+				trackCache[feedItems[i].TrackID] = nil
+				continue
+			}
+
+			details = lookup
+			trackCache[feedItems[i].TrackID] = details
+		}
+
+		if details == nil {
+			continue
+		}
+		if feedItems[i].PreviewURL == "" {
+			feedItems[i].PreviewURL = details.PreviewURL
+		}
+		if feedItems[i].SpotifyURL == "" {
+			feedItems[i].SpotifyURL = details.SpotifyURL
+		}
+		if feedItems[i].AlbumArtURL == "" {
+			feedItems[i].AlbumArtURL = details.AlbumArt
+		}
+	}
+}
+
+func selectListeningActivity(client *supabaseapi.Client, visibleUserIDs []string, query string) ([]byte, int64, error) {
+	data, count, err := client.From("listening_activity").
+		Select(query, "", false).
+		In("user_id", visibleUserIDs).
+		Order("played_at", &postgrest.OrderOpts{Ascending: false}).
+		Limit(50, "").
+		Execute()
+	if err == nil || !isMissingListeningActivityMetadataSelectError(err) {
+		return data, count, err
+	}
+
+	legacyQuery := `
+		id,
+		user_id,
+		track_name,
+		artist_name,
+		album_name,
+		album_art_url,
+		platform,
+		played_at,
+		is_playing
+	`
+
+	return client.From("listening_activity").
+		Select(legacyQuery, "", false).
+		In("user_id", visibleUserIDs).
+		Order("played_at", &postgrest.OrderOpts{Ascending: false}).
+		Limit(50, "").
+		Execute()
+}
+
+func isMissingListeningActivityMetadataSelectError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	message := strings.ToLower(err.Error())
+	if !strings.Contains(message, "listening_activity") {
+		return false
+	}
+
+	return strings.Contains(message, "preview_url") ||
+		strings.Contains(message, "spotify_url") ||
+		strings.Contains(message, "track_id")
 }
 
 func toBool(value any) bool {
@@ -162,4 +280,22 @@ func toString(value any) string {
 	}
 
 	return fmt.Sprintf("%v", value)
+}
+
+func uniqueStrings(values []string) []string {
+	seen := make(map[string]struct{}, len(values))
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		if value == "" {
+			continue
+		}
+		if _, exists := seen[value]; exists {
+			continue
+		}
+
+		seen[value] = struct{}{}
+		result = append(result, value)
+	}
+
+	return result
 }

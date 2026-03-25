@@ -1,11 +1,11 @@
 //@ts-nocheck
 import { Colors } from '@/constants/theme';
-import { useAuth } from '@/contexts/AuthContext';
-import { supabase } from '@/lib/supabase';
+import { ActivityComment, api } from '@/lib/api';
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   Alert,
   Animated,
+  Image,
   Keyboard,
   Modal,
   Pressable,
@@ -16,15 +16,7 @@ import {
   View
 } from 'react-native';
 
-type FlatComment = {
-  id: string;
-  user_id: string;
-  username: string;
-  avatar_id: string;
-  content: string;
-  parent_comment_id: string | null;
-  created_at: string;
-};
+type FlatComment = ActivityComment;
 
 type CommentNode = FlatComment & {
   replies: CommentNode[];
@@ -47,7 +39,6 @@ export function CommentModal({
   artistName,
   onCommentCountChange,
 }: CommentModalProps) {
-  const { profile } = useAuth();
   const [comments, setComments] = useState<FlatComment[]>([]);
   const [newComment, setNewComment] = useState('');
   const [loading, setLoading] = useState(false);
@@ -97,40 +88,9 @@ export function CommentModal({
   const fetchComments = async () => {
     setFetchingComments(true);
     try {
-      const { data, error } = await supabase
-        .from('activity_comments')
-        .select(`
-          id,
-          user_id,
-          content,
-          parent_comment_id,
-          created_at,
-          users!inner(username, avatar_id)
-        `)
-        .eq('activity_id', activityId)
-        .order('created_at', { ascending: true });
-
-      if (error) {
-        if (error.code === 'PGRST205') {
-          setComments([]);
-          onCommentCountChange?.(0);
-          return;
-        }
-        throw error;
-      }
-
-      const formattedComments: FlatComment[] = (data || []).map((item: any) => ({
-        id: item.id,
-        user_id: item.user_id,
-        username: item.users.username,
-        avatar_id: item.users.avatar_id,
-        content: item.content,
-        parent_comment_id: item.parent_comment_id,
-        created_at: item.created_at,
-      }));
-
-      setComments(formattedComments);
-      onCommentCountChange?.(formattedComments.length);
+      const data = await api.reactions.comments(activityId);
+      setComments(data);
+      onCommentCountChange?.(data.length);
     } catch (error) {
       console.error('Error fetching comments:', error);
       setComments([]);
@@ -141,32 +101,11 @@ export function CommentModal({
   };
 
   const handlePostComment = async () => {
-    if (!newComment.trim() || loading || !profile?.id) return;
+    if (!newComment.trim() || loading) return;
 
     setLoading(true);
     try {
-      const payload: Record<string, any> = {
-        activity_id: activityId,
-        user_id: profile.id,
-        content: newComment.trim(),
-      };
-
-      if (replyTo?.id) {
-        payload.parent_comment_id = replyTo.id;
-      }
-
-      const { error } = await supabase
-        .from('activity_comments')
-        .insert(payload);
-
-      if (error) {
-        if (error.code === 'PGRST205') {
-          Alert.alert('Comments Not Available', 'Comments are not configured yet.');
-          return;
-        }
-        throw error;
-      }
-
+      await api.reactions.createComment(activityId, newComment.trim(), replyTo?.id || null);
       setNewComment('');
       setReplyTo(null);
       await fetchComments();
@@ -197,21 +136,17 @@ export function CommentModal({
   const renderComment = (comment: CommentNode, depth = 0) => (
     <View key={comment.id} style={{ marginBottom: 16, marginLeft: depth > 0 ? 20 : 0 }}>
       <View style={{ flexDirection: 'row', alignItems: 'flex-start' }}>
-        <View
+        <Image
+          source={{ uri: `https://api.dicebear.com/7.x/adventurer/png?seed=${comment.avatar_id || 'default'}&size=64&backgroundColor=0D0B09` }}
           style={{
             width: 32,
             height: 32,
             borderRadius: 16,
-            backgroundColor: 'rgba(232, 100, 10, 0.2)',
-            alignItems: 'center',
-            justifyContent: 'center',
             marginRight: 12,
+            borderWidth: 1,
+            borderColor: 'rgba(232, 100, 10, 0.35)',
           }}
-        >
-          <Text style={{ color: Colors.orange, fontSize: 12, fontWeight: '700' }}>
-            {comment.username.charAt(0).toUpperCase()}
-          </Text>
-        </View>
+        />
         <View style={{ flex: 1 }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 4 }}>
             <Text style={{ color: Colors.textPrimary, fontSize: 14, fontWeight: '600' }}>

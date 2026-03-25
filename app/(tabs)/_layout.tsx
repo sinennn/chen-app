@@ -1,5 +1,6 @@
-import { Tabs, router } from 'expo-router';
+import { Redirect, Tabs } from 'expo-router';
 import { useEffect, useRef } from 'react';
+import { ActivityIndicator, View } from 'react-native';
 
 const { Animated } = require('react-native');
 
@@ -38,13 +39,24 @@ function BouncyIcon({
 export default function TabsLayout() {
   const { user, loading } = useAuth();
 
-  useEffect(() => {
-    if (!loading && !user) {
-      router.replace('/(auth)/welcome');
-    }
-  }, [user, loading]);
+  if (loading) {
+    return (
+      <View
+        style={{
+          flex: 1,
+          backgroundColor: Colors.bg,
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}
+      >
+        <ActivityIndicator size="small" color={Colors.orange} />
+      </View>
+    );
+  }
 
-  if (loading || !user) return null;
+  if (!user) {
+    return <Redirect href="/(auth)/welcome" />;
+  }
 
   return (
     <Tabs
