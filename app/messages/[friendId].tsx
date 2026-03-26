@@ -3,7 +3,8 @@ import { Colors } from '@/constants/theme';
 import { Text, View } from 'react-native';
 
 export default function MessagesScreen() {
-  const { friendId } = useLocalSearchParams<{ friendId: string }>();
+  const { friendId, username } = useLocalSearchParams<{ friendId: string; username?: string }>();
+  const displayName = username || friendId || 'friend';
 
   return (
     <View className="flex-1 px-4 pt-16" style={{ backgroundColor: Colors.bg }}>
@@ -11,7 +12,7 @@ export default function MessagesScreen() {
         Messages
       </Text>
       <Text className="mb-4 text-2xl font-semibold" style={{ color: Colors.textPrimary }}>
-        Chat with {friendId ?? 'friend'}
+        Chat with {displayName}
       </Text>
       <View
         className="flex-1 items-center justify-center rounded-3xl border border-dashed px-4"
@@ -24,4 +25,3 @@ export default function MessagesScreen() {
     </View>
   );
 }
-

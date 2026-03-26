@@ -11,12 +11,12 @@ import (
 	"time"
 
 	"chen/internal/auth"
+	"chen/internal/friends"
 	"chen/internal/spotify"
 	"chen/pkg/supabase"
 
 	"github.com/gin-gonic/gin"
 	"github.com/supabase-community/postgrest-go"
-	supabaseapi "github.com/supabase-community/supabase-go"
 )
 
 type ProfileStats struct {
@@ -46,10 +46,12 @@ type PublicProfileUser struct {
 	AvatarID string `json:"avatar_id"`
 }
 
-type PublicProfileStats struct {
-	TotalPlays    int    `json:"totalPlays"`
-	ArtistsPlayed int    `json:"artistsPlayed"`
-	TopArtist     string `json:"topArtist"`
+type PublicProfileStats = ProfileStats
+
+type PublicProfileRelationship struct {
+	FriendshipID string `json:"friendshipId,omitempty"`
+	Status       string `json:"status"`
+	CanMessage   bool   `json:"canMessage"`
 }
 
 type PublicProfileTrack struct {
@@ -68,12 +70,13 @@ type PublicProfileTrack struct {
 }
 
 type PublicProfileResponse struct {
-	User         PublicProfileUser    `json:"user"`
-	Stats        PublicProfileStats   `json:"stats"`
-	NowPlaying   *PublicProfileTrack  `json:"nowPlaying"`
-	RecentTracks []PublicProfileTrack `json:"recentTracks"`
-	TopTracks    []ProfileTopTrack    `json:"topTracks"`
-	TopArtists   []ProfileTopArtist   `json:"topArtists"`
+	User         PublicProfileUser         `json:"user"`
+	Stats        PublicProfileStats        `json:"stats"`
+	Relationship PublicProfileRelationship `json:"relationship"`
+	NowPlaying   *PublicProfileTrack       `json:"nowPlaying"`
+	RecentTracks []PublicProfileTrack      `json:"recentTracks"`
+	TopTracks    []ProfileTopTrack         `json:"topTracks"`
+	TopArtists   []ProfileTopArtist        `json:"topArtists"`
 }
 
 const maxReasonableListeningDurationMs = 2 * 60 * 60 * 1000
@@ -411,16 +414,6 @@ func getPublicProfile(c *gin.Context) {
 		return
 	}
 
-	visibleUserIDs := []string{requestUserID}
-	if friendIDs, err := resolveVisibleProfileIDs(requestUserID); err == nil {
-		visibleUserIDs = append(visibleUserIDs, friendIDs...)
-	}
-
-	if !containsString(visibleUserIDs, targetUserID) {
-		c.JSON(http.StatusForbidden, gin.H{"error": "Profile not accessible"})
-		return
-	}
-
 	userData, _, err := client.From("users").
 		Select("id,username,user_tag,avatar_id", "", false).
 		Eq("id", targetUserID).
@@ -437,141 +430,18 @@ func getPublicProfile(c *gin.Context) {
 		return
 	}
 
-	activityData, _, err := selectPublicProfileActivity(client, targetUserID)
+	stats, err := deriveStatsFromListeningActivity(targetUserID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch listening activity"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch profile stats"})
 		return
 	}
 
-	var activityRows []map[string]any
-	if len(activityData) > 0 {
-		if err := json.Unmarshal(activityData, &activityRows); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to parse listening activity"})
-			return
-		}
-	}
+	nowPlaying, recentTracks, topTracks, topArtists := loadPublicSpotifyProfileSections(targetUserID)
 
-	recentTracks := make([]PublicProfileTrack, 0, min(len(activityRows), 10))
-	topTracksMap := make(map[string]*ProfileTopTrack)
-	topArtistsMap := make(map[string]*ProfileTopArtist)
-	artistOrder := make(map[string]int)
-	trackOrder := make(map[string]int)
-	stats := PublicProfileStats{}
-	var nowPlaying *PublicProfileTrack
-
-	for i, row := range activityRows {
-		playedAt, _ := time.Parse(time.RFC3339, profileToString(row["played_at"]))
-		track := PublicProfileTrack{
-			ID:          profileToString(row["id"]),
-			UserID:      profileToString(row["user_id"]),
-			TrackID:     profileToString(row["track_id"]),
-			TrackName:   profileToString(row["track_name"]),
-			ArtistName:  profileToString(row["artist_name"]),
-			AlbumName:   profileToString(row["album_name"]),
-			AlbumArtURL: profileToString(row["album_art_url"]),
-			SpotifyURL:  profileToString(row["spotify_url"]),
-			PreviewURL:  profileToString(row["preview_url"]),
-			Platform:    profileToString(row["platform"]),
-			PlayedAt:    playedAt,
-			IsPlaying:   toBoolValue(row["is_playing"]),
-		}
-
-		if len(recentTracks) < 10 {
-			recentTracks = append(recentTracks, track)
-		}
-
-		if nowPlaying == nil && track.IsPlaying && time.Since(track.PlayedAt) < time.Minute {
-			copyTrack := track
-			nowPlaying = &copyTrack
-		}
-
-		if track.TrackName != "" {
-			stats.TotalPlays++
-			trackKey := strings.ToLower(strings.TrimSpace(track.TrackName + "::" + track.ArtistName))
-			if _, ok := trackOrder[trackKey]; !ok {
-				trackOrder[trackKey] = i
-			}
-			item := topTracksMap[trackKey]
-			if item == nil {
-				item = &ProfileTopTrack{
-					Name:     track.TrackName,
-					Artist:   track.ArtistName,
-					ImageURL: track.AlbumArtURL,
-				}
-				topTracksMap[trackKey] = item
-			}
-			item.PlayCount++
-		}
-
-		if track.ArtistName != "" {
-			stats.ArtistsPlayed++
-			artistKey := strings.ToLower(strings.TrimSpace(track.ArtistName))
-			if _, ok := artistOrder[artistKey]; !ok {
-				artistOrder[artistKey] = i
-			}
-			item := topArtistsMap[artistKey]
-			if item == nil {
-				item = &ProfileTopArtist{
-					Name:     track.ArtistName,
-					ImageURL: track.AlbumArtURL,
-				}
-				topArtistsMap[artistKey] = item
-			}
-			item.PlayCount++
-		}
-	}
-
-	uniqueArtists := make(map[string]struct{})
-	for _, track := range recentTracks {
-		if track.ArtistName != "" {
-			uniqueArtists[strings.ToLower(strings.TrimSpace(track.ArtistName))] = struct{}{}
-		}
-	}
-	if len(activityRows) > 0 {
-		allArtists := make(map[string]struct{})
-		for _, row := range activityRows {
-			artist := strings.ToLower(strings.TrimSpace(profileToString(row["artist_name"])))
-			if artist == "" {
-				continue
-			}
-			allArtists[artist] = struct{}{}
-		}
-		stats.ArtistsPlayed = len(allArtists)
-	}
-
-	topTracks := make([]ProfileTopTrack, 0, len(topTracksMap))
-	for _, item := range topTracksMap {
-		topTracks = append(topTracks, *item)
-	}
-	sort.SliceStable(topTracks, func(i, j int) bool {
-		if topTracks[i].PlayCount != topTracks[j].PlayCount {
-			return topTracks[i].PlayCount > topTracks[j].PlayCount
-		}
-		leftKey := strings.ToLower(strings.TrimSpace(topTracks[i].Name + "::" + topTracks[i].Artist))
-		rightKey := strings.ToLower(strings.TrimSpace(topTracks[j].Name + "::" + topTracks[j].Artist))
-		return trackOrder[leftKey] < trackOrder[rightKey]
-	})
-	if len(topTracks) > 5 {
-		topTracks = topTracks[:5]
-	}
-
-	topArtists := make([]ProfileTopArtist, 0, len(topArtistsMap))
-	for _, item := range topArtistsMap {
-		topArtists = append(topArtists, *item)
-	}
-	sort.SliceStable(topArtists, func(i, j int) bool {
-		if topArtists[i].PlayCount != topArtists[j].PlayCount {
-			return topArtists[i].PlayCount > topArtists[j].PlayCount
-		}
-		leftKey := strings.ToLower(strings.TrimSpace(topArtists[i].Name))
-		rightKey := strings.ToLower(strings.TrimSpace(topArtists[j].Name))
-		return artistOrder[leftKey] < artistOrder[rightKey]
-	})
-	if len(topArtists) > 5 {
-		topArtists = topArtists[:5]
-	}
-	if len(topArtists) > 0 {
-		stats.TopArtist = topArtists[0].Name
+	relationship, err := friends.GetRelationship(requestUserID, targetUserID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to resolve friendship state"})
+		return
 	}
 
 	c.JSON(http.StatusOK, PublicProfileResponse{
@@ -581,7 +451,12 @@ func getPublicProfile(c *gin.Context) {
 			UserTag:  profileToString(users[0]["user_tag"]),
 			AvatarID: profileToString(users[0]["avatar_id"]),
 		},
-		Stats:        stats,
+		Stats: stats,
+		Relationship: PublicProfileRelationship{
+			FriendshipID: relationship.FriendshipID,
+			Status:       relationship.Status,
+			CanMessage:   relationship.Status == friends.RelationshipStatusFriends,
+		},
 		NowPlaying:   nowPlaying,
 		RecentTracks: recentTracks,
 		TopTracks:    topTracks,
@@ -589,85 +464,148 @@ func getPublicProfile(c *gin.Context) {
 	})
 }
 
-func resolveVisibleProfileIDs(userID string) ([]string, error) {
-	client := supabase.GetClient()
-	if client == nil {
-		return nil, fmt.Errorf("database connection failed")
-	}
-
-	data, _, err := client.From("friendships").
-		Select("requester_id,addressee_id", "", false).
-		Eq("status", "accepted").
-		Or(fmt.Sprintf("requester_id.eq.%s,addressee_id.eq.%s", userID, userID), "").
-		Execute()
+func loadPublicSpotifyProfileSections(userID string) (*PublicProfileTrack, []PublicProfileTrack, []ProfileTopTrack, []ProfileTopArtist) {
+	spotifyClient, _, err := spotify.GetAuthorizedClient(userID)
 	if err != nil {
-		return nil, err
-	}
-
-	var rows []map[string]any
-	if err := json.Unmarshal(data, &rows); err != nil {
-		return nil, err
-	}
-
-	friendIDs := make([]string, 0, len(rows))
-	for _, row := range rows {
-		requesterID := profileToString(row["requester_id"])
-		addresseeID := profileToString(row["addressee_id"])
-		if requesterID == userID && addresseeID != "" {
-			friendIDs = append(friendIDs, addresseeID)
-			continue
+		if errors.Is(err, spotify.ErrNoSpotifyConnection) || spotify.IsRateLimitError(err) {
+			return nil, []PublicProfileTrack{}, []ProfileTopTrack{}, []ProfileTopArtist{}
 		}
-		if addresseeID == userID && requesterID != "" {
-			friendIDs = append(friendIDs, requesterID)
-		}
+
+		log.Printf("public profile spotify client load failed user=%s err=%v", userID, err)
+		return nil, []PublicProfileTrack{}, []ProfileTopTrack{}, []ProfileTopArtist{}
 	}
 
-	return friendIDs, nil
+	return loadPublicNowPlaying(spotifyClient, userID),
+		loadPublicRecentTracks(spotifyClient, userID),
+		loadPublicTopTracks(spotifyClient),
+		loadPublicTopArtists(spotifyClient)
 }
 
-func containsString(values []string, target string) bool {
-	for _, value := range values {
-		if value == target {
-			return true
+func loadPublicNowPlaying(spotifyClient *spotify.SpotifyClient, userID string) *PublicProfileTrack {
+	if spotifyClient == nil {
+		return nil
+	}
+
+	track, err := spotifyClient.GetCurrentlyPlaying()
+	if err != nil {
+		log.Printf("public profile now playing failed user=%s err=%v", userID, err)
+		return nil
+	}
+
+	if track == nil || !track.IsPlaying || strings.TrimSpace(track.Name) == "" {
+		return nil
+	}
+
+	return &PublicProfileTrack{
+		UserID:      userID,
+		TrackID:     track.ID,
+		TrackName:   track.Name,
+		ArtistName:  track.Artist,
+		AlbumName:   track.Album,
+		AlbumArtURL: track.AlbumArt,
+		SpotifyURL:  track.SpotifyURL,
+		PreviewURL:  track.PreviewURL,
+		Platform:    "spotify",
+		PlayedAt:    time.Now(),
+		IsPlaying:   true,
+	}
+}
+
+func loadPublicRecentTracks(spotifyClient *spotify.SpotifyClient, userID string) []PublicProfileTrack {
+	if spotifyClient == nil {
+		return []PublicProfileTrack{}
+	}
+
+	tracks, err := spotifyClient.GetRecentlyPlayed()
+	if err != nil {
+		log.Printf("public profile recent tracks failed user=%s err=%v", userID, err)
+		return []PublicProfileTrack{}
+	}
+
+	result := make([]PublicProfileTrack, 0, min(len(tracks), 10))
+	for _, track := range tracks {
+		if len(result) == 10 {
+			break
 		}
+
+		playedAt, _ := time.Parse(time.RFC3339, track.PlayedAt)
+		result = append(result, PublicProfileTrack{
+			UserID:      userID,
+			TrackID:     track.ID,
+			TrackName:   track.Name,
+			ArtistName:  track.Artist,
+			AlbumName:   track.Album,
+			AlbumArtURL: track.AlbumArt,
+			SpotifyURL:  track.SpotifyURL,
+			PreviewURL:  track.PreviewURL,
+			Platform:    "spotify",
+			PlayedAt:    playedAt,
+			IsPlaying:   false,
+		})
 	}
-	return false
+
+	return result
 }
 
-func selectPublicProfileActivity(client *supabaseapi.Client, targetUserID string) ([]byte, int64, error) {
-	query := "id,user_id,track_id,track_name,artist_name,album_name,album_art_url,spotify_url,preview_url,platform,played_at,is_playing"
-
-	data, count, err := client.From("listening_activity").
-		Select(query, "", false).
-		Eq("user_id", targetUserID).
-		Order("played_at", &postgrest.OrderOpts{Ascending: false}).
-		Limit(200, "").
-		Execute()
-	if err == nil || !isMissingPublicProfileActivityMetadataError(err) {
-		return data, count, err
+func loadPublicTopTracks(spotifyClient *spotify.SpotifyClient) []ProfileTopTrack {
+	if spotifyClient == nil {
+		return []ProfileTopTrack{}
 	}
 
-	return client.From("listening_activity").
-		Select("id,user_id,track_name,artist_name,album_name,album_art_url,platform,played_at,is_playing", "", false).
-		Eq("user_id", targetUserID).
-		Order("played_at", &postgrest.OrderOpts{Ascending: false}).
-		Limit(200, "").
-		Execute()
+	tracks, err := spotifyClient.GetTopTracks("short_term")
+	if err != nil {
+		log.Printf("public profile top tracks failed user=%s err=%v", spotifyClient.UserID, err)
+		return []ProfileTopTrack{}
+	}
+
+	result := make([]ProfileTopTrack, 0, min(len(tracks), 3))
+	for _, track := range tracks {
+		if len(result) == 3 {
+			break
+		}
+
+		result = append(result, ProfileTopTrack{
+			Name:      track.Name,
+			Artist:    track.Artist,
+			PlayCount: track.Rank,
+			ImageURL:  track.AlbumArt,
+		})
+	}
+
+	return result
 }
 
-func isMissingPublicProfileActivityMetadataError(err error) bool {
-	if err == nil {
-		return false
+func loadPublicTopArtists(spotifyClient *spotify.SpotifyClient) []ProfileTopArtist {
+	if spotifyClient == nil {
+		return []ProfileTopArtist{}
 	}
 
-	message := strings.ToLower(err.Error())
-	if !strings.Contains(message, "listening_activity") {
-		return false
+	response, err := spotifyClient.GetTopArtistsRaw("short_term", 5)
+	if err != nil {
+		log.Printf("public profile top artists failed user=%s err=%v", spotifyClient.UserID, err)
+		return []ProfileTopArtist{}
 	}
 
-	return strings.Contains(message, "preview_url") ||
-		strings.Contains(message, "spotify_url") ||
-		strings.Contains(message, "track_id")
+	result := make([]ProfileTopArtist, 0, min(len(response.Items), 5))
+	for i, artist := range response.Items {
+		if len(result) == 5 {
+			break
+		}
+
+		imageURL := ""
+		if len(artist.Images) > 0 {
+			imageURL = artist.Images[0].URL
+		}
+
+		result = append(result, ProfileTopArtist{
+			Name:      artist.Name,
+			PlayCount: i + 1,
+			ImageURL:  imageURL,
+			Genres:    artist.Genres,
+		})
+	}
+
+	return result
 }
 
 func toBoolValue(value any) bool {

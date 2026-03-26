@@ -7,7 +7,6 @@ import (
 	"strings"
 	"time"
 
-	"chen/internal/friends"
 	"chen/internal/spotify"
 	"chen/pkg/supabase"
 
@@ -57,14 +56,7 @@ func getFeed(c *gin.Context) {
 		return
 	}
 
-	friendIDs, err := friends.GetAcceptedFriendIDs(userIDStr)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to resolve friends"})
-		return
-	}
-
-	visibleUserIDs := uniqueStrings(append(friendIDs, userIDStr))
-	refreshFeedUsers(visibleUserIDs)
+	refreshFeedUsers([]string{userIDStr})
 	activityQuery := `
 		id,
 		user_id,
@@ -80,7 +72,7 @@ func getFeed(c *gin.Context) {
 		is_playing
 	`
 
-	data, _, err := selectListeningActivity(client, visibleUserIDs, activityQuery)
+	data, _, err := selectListeningActivity(client, activityQuery)
 
 	if err != nil {
 		fmt.Printf("Error fetching global feed: %v\n", err)
@@ -101,9 +93,18 @@ func getFeed(c *gin.Context) {
 		return
 	}
 
+	activityUserIDs := make([]string, 0, len(activities))
+	for _, activity := range activities {
+		activityUserID := toString(activity["user_id"])
+		if activityUserID == "" {
+			continue
+		}
+		activityUserIDs = append(activityUserIDs, activityUserID)
+	}
+
 	userData, _, err := client.From("users").
 		Select("id, username, avatar_id", "", false).
-		In("id", visibleUserIDs).
+		In("id", uniqueStrings(activityUserIDs)).
 		Execute()
 	if err != nil {
 		fmt.Printf("Error fetching users for feed: %v\n", err)
@@ -223,10 +224,9 @@ func hydrateFeedTrackMetadata(feedItems []ActivityItem) {
 	}
 }
 
-func selectListeningActivity(client *supabaseapi.Client, visibleUserIDs []string, query string) ([]byte, int64, error) {
+func selectListeningActivity(client *supabaseapi.Client, query string) ([]byte, int64, error) {
 	data, count, err := client.From("listening_activity").
 		Select(query, "", false).
-		In("user_id", visibleUserIDs).
 		Order("played_at", &postgrest.OrderOpts{Ascending: false}).
 		Limit(50, "").
 		Execute()
@@ -248,7 +248,6 @@ func selectListeningActivity(client *supabaseapi.Client, visibleUserIDs []string
 
 	return client.From("listening_activity").
 		Select(legacyQuery, "", false).
-		In("user_id", visibleUserIDs).
 		Order("played_at", &postgrest.OrderOpts{Ascending: false}).
 		Limit(50, "").
 		Execute()

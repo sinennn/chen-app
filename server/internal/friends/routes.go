@@ -38,10 +38,21 @@ type ActivityItem struct {
 }
 
 type SearchResult struct {
-	ID       string `json:"id"`
-	Username string `json:"username"`
-	UserTag  string `json:"user_tag,omitempty"`
-	AvatarID string `json:"avatar_id"`
+	ID                 string `json:"id"`
+	Username           string `json:"username"`
+	UserTag            string `json:"user_tag,omitempty"`
+	AvatarID           string `json:"avatar_id"`
+	RelationshipStatus string `json:"relationship_status"`
+}
+
+type Recommendation struct {
+	ID            string        `json:"id"`
+	Username      string        `json:"username"`
+	UserTag       string        `json:"user_tag,omitempty"`
+	AvatarID      string        `json:"avatar_id"`
+	Compatibility int           `json:"compatibility"`
+	IsOnline      bool          `json:"is_online"`
+	CurrentTrack  *ActivityItem `json:"current_track,omitempty"`
 }
 
 type AddFriendRequest struct {
@@ -55,6 +66,7 @@ type FriendshipActionRequest struct {
 func RegisterRoutes(rg *gin.RouterGroup) {
 	rg.GET("", getFriends)
 	rg.GET("/search", searchUsers)
+	rg.GET("/recommendations", getRecommendations)
 	rg.POST("/add", addFriend)
 	rg.POST("/accept", acceptFriend)
 	rg.POST("/decline", declineFriend)
@@ -152,7 +164,7 @@ func searchUsers(c *gin.Context) {
 			fmt.Sprintf("username.ilike.%s%%,user_tag.ilike.%s%%", query, query),
 			"",
 		).
-		Limit(10, "").
+		Limit(25, "").
 		Execute()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to search users"})
@@ -167,15 +179,130 @@ func searchUsers(c *gin.Context) {
 
 	results := make([]SearchResult, 0, len(rows))
 	for _, row := range rows {
+		candidateID := toString(row["id"])
+
+		relationship, err := GetRelationship(userID, candidateID)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to resolve relationship state"})
+			return
+		}
+
 		results = append(results, SearchResult{
-			ID:       toString(row["id"]),
-			Username: toString(row["username"]),
-			UserTag:  toString(row["user_tag"]),
-			AvatarID: toString(row["avatar_id"]),
+			ID:                 candidateID,
+			Username:           toString(row["username"]),
+			UserTag:            toString(row["user_tag"]),
+			AvatarID:           toString(row["avatar_id"]),
+			RelationshipStatus: relationship.Status,
 		})
+
+		if len(results) == 10 {
+			break
+		}
 	}
 
 	c.JSON(http.StatusOK, results)
+}
+
+func getRecommendations(c *gin.Context) {
+	userID, exists := auth.GetUserFromContext(c)
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
+		return
+	}
+
+	client := supabase.GetClient()
+	if client == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Database connection failed"})
+		return
+	}
+
+	compatibilityByUser, err := getCompatibilityScores(userID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch compatibility scores"})
+		return
+	}
+
+	relationshipUserIDs, err := getRelationshipUserIDs(userID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to resolve existing relationships"})
+		return
+	}
+
+	excludedUserIDs := make(map[string]struct{}, len(relationshipUserIDs)+1)
+	excludedUserIDs[userID] = struct{}{}
+	for _, relatedUserID := range relationshipUserIDs {
+		excludedUserIDs[relatedUserID] = struct{}{}
+	}
+
+	candidateIDs := make([]string, 0, len(compatibilityByUser))
+	for candidateID, score := range compatibilityByUser {
+		if score <= 0 {
+			continue
+		}
+		if _, excluded := excludedUserIDs[candidateID]; excluded {
+			continue
+		}
+
+		candidateIDs = append(candidateIDs, candidateID)
+	}
+
+	if len(candidateIDs) == 0 {
+		c.JSON(http.StatusOK, []Recommendation{})
+		return
+	}
+
+	sort.SliceStable(candidateIDs, func(i, j int) bool {
+		if compatibilityByUser[candidateIDs[i]] != compatibilityByUser[candidateIDs[j]] {
+			return compatibilityByUser[candidateIDs[i]] > compatibilityByUser[candidateIDs[j]]
+		}
+		return candidateIDs[i] < candidateIDs[j]
+	})
+
+	if len(candidateIDs) > 12 {
+		candidateIDs = candidateIDs[:12]
+	}
+
+	usersData, _, err := client.From("users").
+		Select("id,username,user_tag,avatar_id", "", false).
+		In("id", candidateIDs).
+		Execute()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch recommended users"})
+		return
+	}
+
+	var userRows []map[string]any
+	if err := json.Unmarshal(usersData, &userRows); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to parse recommended users"})
+		return
+	}
+
+	latestActivityByUser, _ := getLatestActivity(candidateIDs)
+	userRowsByID := make(map[string]map[string]any, len(userRows))
+	for _, row := range userRows {
+		userRowsByID[toString(row["id"])] = row
+	}
+
+	recommendations := make([]Recommendation, 0, len(candidateIDs))
+	for _, candidateID := range candidateIDs {
+		row, ok := userRowsByID[candidateID]
+		if !ok {
+			continue
+		}
+
+		activity := latestActivityByUser[candidateID]
+		recommendations = append(recommendations, Recommendation{
+			ID:            candidateID,
+			Username:      toString(row["username"]),
+			UserTag:       toString(row["user_tag"]),
+			AvatarID:      toString(row["avatar_id"]),
+			Compatibility: compatibilityByUser[candidateID],
+			IsOnline:      activity != nil && activity.IsPlaying,
+			CurrentTrack:  activity,
+		})
+	}
+
+	c.JSON(http.StatusOK, recommendations)
 }
 
 func addFriend(c *gin.Context) {
@@ -358,6 +485,44 @@ func getCompatibilityScores(userID string) (map[string]int, error) {
 	}
 
 	return scores, nil
+}
+
+func getRelationshipUserIDs(userID string) ([]string, error) {
+	client := supabase.GetClient()
+	if client == nil {
+		return nil, fmt.Errorf("database connection failed")
+	}
+
+	data, _, err := client.From("friendships").
+		Select("requester_id,addressee_id", "", false).
+		Or(
+			fmt.Sprintf("requester_id.eq.%s,addressee_id.eq.%s", userID, userID),
+			"",
+		).
+		Execute()
+	if err != nil {
+		return nil, err
+	}
+
+	var rows []map[string]any
+	if err := json.Unmarshal(data, &rows); err != nil {
+		return nil, err
+	}
+
+	relatedUserIDs := make([]string, 0, len(rows))
+	for _, row := range rows {
+		requesterID := toString(row["requester_id"])
+		addresseeID := toString(row["addressee_id"])
+
+		switch {
+		case requesterID == userID && addresseeID != "":
+			relatedUserIDs = append(relatedUserIDs, addresseeID)
+		case addresseeID == userID && requesterID != "":
+			relatedUserIDs = append(relatedUserIDs, requesterID)
+		}
+	}
+
+	return relatedUserIDs, nil
 }
 
 func getLatestActivity(friendIDs []string) (map[string]*ActivityItem, error) {

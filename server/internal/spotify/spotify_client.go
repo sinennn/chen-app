@@ -233,6 +233,10 @@ func (sc *SpotifyClient) cacheKey(endpoint string) string {
 	return sc.UserID + ":" + endpoint
 }
 
+func globalResourceCacheKey(resource string) string {
+	return "global:" + resource
+}
+
 func (sc *SpotifyClient) doRequest(endpoint, method, requestURL string, body io.Reader, headers map[string]string) ([]byte, int, error) {
 	if err := sharedSpotifyGuard.waitTurn(); err != nil {
 		return nil, 0, err
@@ -676,13 +680,10 @@ func (sc *SpotifyClient) GetArtistGenres(name string) ([]string, error) {
 		return nil, nil
 	}
 
-	cacheKey := sc.cacheKey("artist-genres:" + normalized)
+	cacheKey := globalResourceCacheKey("artist-genres:" + normalized)
 	if cached, ok := sharedSpotifyCache.getFresh(cacheKey); ok {
 		if genres, ok := cached.([]string); ok {
-			if len(genres) > 0 {
-				return genres, nil
-			}
-			sharedSpotifyCache.Delete(cacheKey)
+			return genres, nil
 		}
 	}
 
@@ -711,13 +712,10 @@ func (sc *SpotifyClient) GetArtistGenresByID(artistID string) ([]string, error) 
 		return nil, nil
 	}
 
-	cacheKey := sc.cacheKey("artist-genres-id:" + normalized)
+	cacheKey := globalResourceCacheKey("artist-genres-id:" + normalized)
 	if cached, ok := sharedSpotifyCache.getFresh(cacheKey); ok {
 		if genres, ok := cached.([]string); ok {
-			if len(genres) > 0 {
-				return genres, nil
-			}
-			sharedSpotifyCache.Delete(cacheKey)
+			return genres, nil
 		}
 	}
 
@@ -743,7 +741,7 @@ func (sc *SpotifyClient) GetTrackDetails(trackID string) (*Track, error) {
 		return nil, nil
 	}
 
-	return loadSharedResource(sharedSpotifyCache, sc.cacheKey("track-details:"+normalized), trackLookupTTL, func() (*Track, error) {
+	return loadSharedResource(sharedSpotifyCache, globalResourceCacheKey("track-details:"+normalized), trackLookupTTL, func() (*Track, error) {
 		requestURL := "https://api.spotify.com/v1/tracks/" + url.PathEscape(normalized)
 		body, _, err := sc.doRequest("track-details", http.MethodGet, requestURL, nil, nil)
 		if err != nil {
@@ -883,6 +881,7 @@ func (sc *SpotifyClient) populateMissingGenresFromBatchArtistLookup(response *Sp
 func (sc *SpotifyClient) getArtistGenresBatch(artistIDs []string) (map[string][]string, error) {
 	normalizedIDs := make([]string, 0, len(artistIDs))
 	seen := make(map[string]struct{}, len(artistIDs))
+	genresByID := make(map[string][]string, len(artistIDs))
 	for _, artistID := range artistIDs {
 		normalized := strings.TrimSpace(artistID)
 		if normalized == "" {
@@ -893,11 +892,19 @@ func (sc *SpotifyClient) getArtistGenresBatch(artistIDs []string) (map[string][]
 		}
 
 		seen[normalized] = struct{}{}
+		cacheKey := globalResourceCacheKey("artist-genres-id:" + normalized)
+		if cached, ok := sharedSpotifyCache.getFresh(cacheKey); ok {
+			if genres, ok := cached.([]string); ok {
+				genresByID[normalized] = genres
+				continue
+			}
+		}
+
 		normalizedIDs = append(normalizedIDs, normalized)
 	}
 
 	if len(normalizedIDs) == 0 {
-		return map[string][]string{}, nil
+		return genresByID, nil
 	}
 
 	requestURL := "https://api.spotify.com/v1/artists?ids=" + strings.Join(normalizedIDs, ",")
@@ -911,9 +918,15 @@ func (sc *SpotifyClient) getArtistGenresBatch(artistIDs []string) (map[string][]
 		return nil, err
 	}
 
-	genresByID := make(map[string][]string, len(response.Artists))
 	for _, artist := range response.Artists {
-		if artist.ID == "" || len(artist.Genres) == 0 {
+		if artist.ID == "" {
+			continue
+		}
+
+		cacheKey := globalResourceCacheKey("artist-genres-id:" + artist.ID)
+		sharedSpotifyCache.set(cacheKey, artist.Genres, artistLookupTTL)
+
+		if len(artist.Genres) == 0 {
 			continue
 		}
 

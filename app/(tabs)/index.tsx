@@ -926,8 +926,7 @@ export default function FeedScreen() {
     try {
       if (!isRefresh) setLoading(true);
       setError(null);
-      
-      // Refresh profile to get latest avatar
+ 
       await refreshProfile();
       
       const feedData = (await api.feed.get()).filter(isRenderableFeedItem);
@@ -1146,7 +1145,10 @@ export default function FeedScreen() {
       return;
     }
 
-    router.push(`/profile/${item.user_id}`);
+    router.push({
+      pathname: '/profile/[userId]',
+      params: { userId: item.user_id },
+    });
   };
 
   const renderEmptyState = () => (
@@ -1245,7 +1247,7 @@ export default function FeedScreen() {
             }
           >
             {loading ? (
-              [...Array(3)].map((_, i) => (
+              [...Array(6)].map((_, i) => (
                 <SkeletonCard key={i} index={i} />
               ))
             ) : feed.length === 0 ? (
@@ -1269,7 +1271,6 @@ export default function FeedScreen() {
         </LinearGradient>
       </ImageBackground>
       
-      {/* Comment Modal */}
       {selectedActivity && (
         <CommentModal
           visible={commentModalVisible}

@@ -421,7 +421,7 @@ export default function FriendsPage() {
                       key={friend.id}
                       friend={friend}
                       index={index}
-                      onPress={() => router.push(`/profile/${friend.id}`)}
+                      onPress={() => router.push({ pathname: '/profile/[userId]', params: { userId: friend.id } })}
                     />
                   ))}
                 </ScrollView>

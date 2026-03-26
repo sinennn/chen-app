@@ -26,14 +26,21 @@ export type PublicProfileUser = {
 };
 
 export type PublicProfileStats = {
-  totalPlays: number;
+  minutesListened: number;
   artistsPlayed: number;
-  topArtist: string;
+  topGenre: string;
+};
+
+export type PublicProfileRelationship = {
+  friendshipId?: string;
+  status: 'none' | 'self' | 'friends' | 'outgoing_pending' | 'incoming_pending';
+  canMessage: boolean;
 };
 
 export type PublicProfileData = {
   user: PublicProfileUser;
   stats: PublicProfileStats;
+  relationship: PublicProfileRelationship;
   nowPlaying: ActivityItem | null;
   recentTracks: ActivityItem[];
   topTracks: Array<{
@@ -88,6 +95,17 @@ export type FriendSearchResult = {
   username: string;
   user_tag?: string;
   avatar_id: string;
+  relationship_status: 'none' | 'self' | 'friends' | 'outgoing_pending' | 'incoming_pending';
+};
+
+export type FriendRecommendation = {
+  id: string;
+  username: string;
+  user_tag?: string;
+  avatar_id: string;
+  compatibility: number;
+  is_online: boolean;
+  current_track?: ActivityItem;
 };
 
 export type UserProfile = {
@@ -191,6 +209,7 @@ export const api = {
   friends: {
     list: () => getJSON<Friend[]>('/friends'),
     search: (query: string) => getJSON<FriendSearchResult[]>(`/friends/search?q=${encodeURIComponent(query)}`),
+    recommendations: () => getJSON<FriendRecommendation[]>('/friends/recommendations'),
     add: (username: string) => postJSON('/friends/add', { username }),
     accept: (friendshipId: string) => postJSON('/friends/accept', { friendship_id: friendshipId }),
     decline: (friendshipId: string) => postJSON('/friends/decline', { friendship_id: friendshipId }),
