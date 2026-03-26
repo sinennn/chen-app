@@ -1,0 +1,5 @@
+./bucket.go
+./client.go
+./error.go
+./storage.go
+./types.go
