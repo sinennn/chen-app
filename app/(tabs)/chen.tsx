@@ -1,10 +1,12 @@
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { Colors } from '@/constants/theme';
 import { useAuth } from '@/contexts/AuthContext';
-import { api } from '@/lib/api';
+import { ChenConversationMessage, api } from '@/lib/api';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useEffect, useRef, useState } from 'react';
 import {
+  //@ts-ignore
+  ActivityIndicator,
   //@ts-ignore
   Animated,
   //@ts-ignore
@@ -35,6 +37,15 @@ type ChatMessage = {
   content: string;
   timestamp: Date;
 };
+
+function toChatMessage(message: ChenConversationMessage, index: number): ChatMessage {
+  return {
+    id: `${message.role}-${index}-${Date.now()}`,
+    role: message.role === 'assistant' ? 'chen' : 'user',
+    content: message.content,
+    timestamp: new Date(),
+  };
+}
 
 // ── Chen Avatar — 3D coin-flip ring ──────────────────────────────────────────
 
@@ -298,23 +309,67 @@ function ChatBubble({ message, isUser }: { message: ChatMessage; isUser: boolean
 export default function ChenScreen() {
   const { profile } = useAuth();
   const name = profile?.username || 'you';
-
-  const INITIAL_MESSAGES: ChatMessage[] = [
-    {
-      id: '1',
-      role: 'chen',
-      content: `hey ${name}. i've been listening with you. what's on your mind?`,
-      timestamp: new Date(),
-    },
-  ];
-
-  const [messages, setMessages] = useState<ChatMessage[]>(INITIAL_MESSAGES);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
   const [isThinking, setIsThinking] = useState(false);
+  const [isLoadingConversation, setIsLoadingConversation] = useState(true);
   const scrollViewRef = useRef<ScrollView>(null);
 
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadConversation = async () => {
+      try {
+        setIsLoadingConversation(true);
+        const result = await api.chen.conversation();
+        if (cancelled) {
+          return;
+        }
+
+        const nextMessages = (result.messages || []).map((message, index) => toChatMessage(message, index));
+        if (nextMessages.length > 0) {
+          setMessages(nextMessages);
+          return;
+        }
+
+        setMessages([
+          {
+            id: 'fallback-intro',
+            role: 'chen',
+            content: `hey ${name}. i've been listening with you. what's on your mind?`,
+            timestamp: new Date(),
+          },
+        ]);
+      } catch (error) {
+        if (cancelled) {
+          return;
+        }
+
+        console.error('Failed to load Chen conversation:', error);
+        setMessages([
+          {
+            id: 'fallback-intro',
+            role: 'chen',
+            content: `hey ${name}. i've been listening with you. what's on your mind?`,
+            timestamp: new Date(),
+          },
+        ]);
+      } finally {
+        if (!cancelled) {
+          setIsLoadingConversation(false);
+        }
+      }
+    };
+
+    loadConversation();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [name, profile?.id]);
+
   const handleSend = async () => {
-    if (!input.trim() || isThinking) return;
+    if (!input.trim() || isThinking || isLoadingConversation) return;
 
     const userMsg: ChatMessage = {
       id: String(Date.now()),
@@ -323,15 +378,16 @@ export default function ChenScreen() {
       timestamp: new Date(),
     };
 
-    setMessages(prev => [...prev, userMsg]);
+    const nextMessages = [...messages, userMsg];
+    setMessages(nextMessages);
     setInput('');
     setIsThinking(true);
 
     try {
-      const history = messages.map(m => ({
+      const history = nextMessages.slice(0, -1).map(m => ({
         role: m.role === 'chen' ? 'assistant' : 'user',
         content: m.content,
-      }));
+      })) as ChenConversationMessage[];
 
       const result = await api.chen.chat(input.trim(), history);
 
@@ -454,6 +510,15 @@ export default function ChenScreen() {
               }}
               showsVerticalScrollIndicator={false}
             >
+              {isLoadingConversation ? (
+                <View style={{ paddingTop: 12, alignItems: 'center' }}>
+                  <ActivityIndicator color={Colors.orange} />
+                  <Text style={{ color: Colors.textMuted, fontSize: 13, marginTop: 12 }}>
+                    loading your conversation...
+                  </Text>
+                </View>
+              ) : null}
+
               {messages.map((message) => (
                 <ChatBubble
                   key={message.id}
@@ -515,12 +580,12 @@ export default function ChenScreen() {
 
                 <Pressable
                   onPress={handleSend}
-                  disabled={!input.trim() || isThinking}
+                  disabled={!input.trim() || isThinking || isLoadingConversation}
                   style={{
                     width: 34,
                     height: 34,
                     borderRadius: 17,
-                    backgroundColor: input.trim() && !isThinking
+                    backgroundColor: input.trim() && !isThinking && !isLoadingConversation
                       ? Colors.orange
                       : 'rgba(255,255,255,0.1)',
                     alignItems: 'center',
@@ -535,7 +600,7 @@ export default function ChenScreen() {
                   <IconSymbol
                     name="arrow.up"
                     size={16}
-                    color={input.trim() && !isThinking ? Colors.white : 'rgba(255,255,255,0.3)'}
+                    color={input.trim() && !isThinking && !isLoadingConversation ? Colors.white : 'rgba(255,255,255,0.3)'}
                   />
                 </Pressable>
               </View>

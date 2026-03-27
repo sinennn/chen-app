@@ -7,8 +7,8 @@ import { RecommendedTrack, SpotifyArtist, api } from '@/lib/api';
 import AsyncStorage from '@/lib/storage';
 import { supabase } from '@/lib/supabase';
 import { LinearGradient } from 'expo-linear-gradient';
-import { router } from 'expo-router';
-import { useEffect, useRef, useState } from 'react';
+import { router, useFocusEffect } from 'expo-router';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -97,7 +97,7 @@ function EmptyState({ message }: { message: string }) {
   );
 }
 
-const PROFILE_SCREEN_CACHE_KEY = 'chen_profile_screen_data';
+const PROFILE_SCREEN_CACHE_KEY = 'chen_profile_screen_data_v2';
 
 async function loadProfileScreenCache() {
   try {
@@ -248,7 +248,7 @@ export default function ProfileScreen() {
     }
   };
 
-  const fetchProfileData = async () => {
+  const fetchProfileData = async ({ freshTopArtists = false }: { freshTopArtists?: boolean } = {}) => {
     if (authLoading || !user) {
       return;
     }
@@ -288,7 +288,7 @@ export default function ProfileScreen() {
       })
       .finally(() => setStatsLoading(false));
 
-    api.spotify.topArtists('short_term', 5)
+    api.spotify.topArtists('short_term', 5, { fresh: freshTopArtists })
       .then((data) => {
         const artists = data?.items || [];
         setTopArtists(artists);
@@ -367,11 +367,21 @@ export default function ProfileScreen() {
         setStatsLoading(cached.statsLoading ?? true);
       }
 
-      await fetchProfileData();
+      await fetchProfileData({ freshTopArtists: true });
     };
 
     init();
   }, [authLoading, user]);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (authLoading || !user) {
+        return;
+      }
+
+      fetchProfileData();
+    }, [authLoading, user?.id])
+  );
 
   useEffect(() => {
     if (!user?.id) {

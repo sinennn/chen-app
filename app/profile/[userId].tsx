@@ -245,7 +245,7 @@ export default function PublicProfileScreen() {
   const avatarOpacity = useRef(new Animated.Value(0)).current;
   const glowOpacity = useRef(new Animated.Value(0.5)).current;
 
-  const loadProfile = async (showSpinner = true) => {
+  const loadProfile = async (showSpinner = true, fresh = false) => {
     if (!userId) {
       setLoading(false);
       setError('User not found');
@@ -257,7 +257,7 @@ export default function PublicProfileScreen() {
         setLoading(true);
       }
       setError(null);
-      const data = await api.profile.user(userId);
+      const data = await api.profile.user(userId, { fresh });
       setProfile(data);
     } catch (err) {
       setError(parseErrorMessage(err, 'Failed to load profile'));
@@ -281,7 +281,7 @@ export default function PublicProfileScreen() {
       try {
         setLoading(true);
         setError(null);
-        const data = await api.profile.user(userId);
+        const data = await api.profile.user(userId, { fresh: true });
         if (!cancelled) {
           setProfile(data);
         }
@@ -374,6 +374,7 @@ export default function PublicProfileScreen() {
 
   const relationshipCopy = getRelationshipCopy(profile);
   const showSecondaryAction = Boolean(profile && profile.relationship.status !== 'self');
+  const headerUsername = profile?.user?.username || 'Profile';
 
   return (
     <View style={{ flex: 1, backgroundColor: Colors.bg }}>
@@ -394,7 +395,9 @@ export default function PublicProfileScreen() {
         >
           <IconSymbol name="chevron.left" size={18} color={Colors.textSecondary} />
         </Pressable>
-        <Text style={{ fontSize: 11, fontWeight: '700', color: Colors.textMuted, letterSpacing: 2.5, textTransform: 'uppercase' }}>{profile.user.username || ' '}'s Profile</Text>
+        <Text style={{ fontSize: 11, fontWeight: '700', color: Colors.textMuted, letterSpacing: 2.5, textTransform: 'uppercase' }}>
+          {`${headerUsername}'s Profile`}
+        </Text>
         <View style={{ width: 38, height: 38 }} />
       </View>
 
@@ -406,7 +409,7 @@ export default function PublicProfileScreen() {
         <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 32 }}>
           <Text style={{ color: Colors.textPrimary, fontSize: 16, fontWeight: '700', marginBottom: 8 }}>Couldn&apos;t load profile</Text>
           <Text style={{ color: Colors.textMuted, fontSize: 13, textAlign: 'center', marginBottom: 18 }}>{error || 'Something went wrong.'}</Text>
-          <ActionButton icon="arrow.clockwise" label="Try again" onPress={() => loadProfile()} fill={false} />
+          <ActionButton icon="arrow.clockwise" label="Try again" onPress={() => loadProfile(true, true)} fill={false} />
         </View>
       ) : (
         <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 110 }}>

@@ -6,8 +6,8 @@ import { useAuth } from '@/contexts/AuthContext';
 import { ActivityItem, api } from '@/lib/api';
 import { supabase } from '@/lib/supabase';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useRouter } from 'expo-router';
-import { useEffect, useRef, useState } from 'react';
+import { useFocusEffect, useRouter } from 'expo-router';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Alert,
   Animated,
@@ -99,6 +99,48 @@ function buildSpotifyEmbedHTML(trackID: string) {
 </html>`;
 }
 
+function isAllowedSpotifyPreviewURL(url?: string) {
+  const normalizedURL = url?.trim();
+  if (!normalizedURL) {
+    return false;
+  }
+
+  return (
+    normalizedURL === 'about:blank' ||
+    normalizedURL.startsWith('data:') ||
+    normalizedURL.startsWith('blob:') ||
+    normalizedURL.startsWith('https://open.spotify.com/embed/') ||
+    normalizedURL.startsWith('https://open.spotify.com/embed-podcast/') ||
+    normalizedURL.startsWith('https://open.spotifycdn.com/')
+  );
+}
+
+function getExternalSpotifyURL(url?: string) {
+  const normalizedURL = url?.trim();
+  if (!normalizedURL) {
+    return '';
+  }
+
+  if (normalizedURL.startsWith('spotify:')) {
+    return normalizedURL;
+  }
+
+  try {
+    const parsedURL = new URL(normalizedURL);
+    if (parsedURL.hostname === 'spotify.app.link') {
+      return (
+        parsedURL.searchParams.get('$fallback_url') ||
+        parsedURL.searchParams.get('$full_url') ||
+        normalizedURL
+      );
+    }
+  } catch {
+    return normalizedURL;
+  }
+
+  return normalizedURL;
+}
+
 function SpotifyPreviewModal({
   item,
   visible,
@@ -109,6 +151,32 @@ function SpotifyPreviewModal({
   onClose: () => void;
 }) {
   const trackID = getSpotifyTrackID(item);
+
+  const handleShouldStartLoadWithRequest = (request: { url?: string }) => {
+    if (isAllowedSpotifyPreviewURL(request.url)) {
+      return true;
+    }
+
+    const externalURL = getExternalSpotifyURL(request.url);
+    if (externalURL) {
+      Linking.openURL(externalURL).catch(() => {
+        Alert.alert('Unable to open Spotify', 'Please try opening the track again in a moment.');
+      });
+    }
+
+    return false;
+  };
+
+  const handlePreviewError = (event: any) => {
+    const error = event?.nativeEvent;
+    const failedURL = error?.url?.trim();
+
+    if (error?.domain === 'NSURLErrorDomain' && error?.code === -1002 && failedURL?.includes('spotify.app.link')) {
+      return;
+    }
+
+    console.warn('Encountered an error loading page', error);
+  };
 
   if (!visible || !item || !trackID) {
     return null;
@@ -218,6 +286,9 @@ function SpotifyPreviewModal({
                 scrollEnabled={false}
                 allowsInlineMediaPlayback
                 mediaPlaybackRequiresUserAction={false}
+                setSupportMultipleWindows={false}
+                onShouldStartLoadWithRequest={handleShouldStartLoadWithRequest}
+                onError={handlePreviewError}
               />
             </View>
 
@@ -893,6 +964,7 @@ export default function FeedScreen() {
   const [selectedActivity, setSelectedActivity] = useState<ActivityItem | null>(null);
   const [selectedPreviewItem, setSelectedPreviewItem] = useState<ActivityItem | null>(null);
   const [engagementByActivity, setEngagementByActivity] = useState<Record<string, FeedEngagement>>({});
+  const [notificationCount, setNotificationCount] = useState(0);
 
   // Update local profile when auth profile changes
   useEffect(() => {
@@ -916,6 +988,20 @@ export default function FeedScreen() {
     }
   };
 
+  const fetchNotificationCount = useCallback(async () => {
+    if (!user?.id) {
+      setNotificationCount(0);
+      return;
+    }
+
+    try {
+      const result = await api.notifications.unreadCount();
+      setNotificationCount(result.count || 0);
+    } catch {
+      setNotificationCount(0);
+    }
+  }, [user?.id]);
+
   const fetchFeed = async (isRefresh = false) => {
     if (authLoading || !user) {
       setLoading(false);
@@ -928,6 +1014,7 @@ export default function FeedScreen() {
       setError(null);
  
       await refreshProfile();
+      await fetchNotificationCount();
       
       const feedData = (await api.feed.get()).filter(isRenderableFeedItem);
       setFeed(feedData);
@@ -1052,6 +1139,12 @@ export default function FeedScreen() {
       supabase.removeChannel(channel);
     };
   }, [authLoading, user?.id, feed.map((item) => item.id).join(',')]);
+
+  useFocusEffect(
+    useCallback(() => {
+      fetchNotificationCount();
+    }, [fetchNotificationCount])
+  );
 
   const handleCommentPress = (item: ActivityItem) => {
     setSelectedActivity(item);
@@ -1203,6 +1296,7 @@ export default function FeedScreen() {
 
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 16 }} className="pt-5">
               <Pressable
+                onPress={() => router.push('/notifications')}
                 style={{
                   width: 40,
                   height: 40,
@@ -1215,6 +1309,28 @@ export default function FeedScreen() {
                 }}
               >
                 <IconSymbol name="bell" size={20} color={Colors.textPrimary} />
+                {notificationCount > 0 ? (
+                  <View
+                    style={{
+                      position: 'absolute',
+                      top: -4,
+                      right: -4,
+                      minWidth: 18,
+                      height: 18,
+                      borderRadius: 9,
+                      backgroundColor: Colors.orange,
+                      paddingHorizontal: 4,
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      borderWidth: 1,
+                      borderColor: 'rgba(13,11,9,0.85)',
+                    }}
+                  >
+                    <Text style={{ color: Colors.white, fontSize: 10, fontWeight: '700' }}>
+                      {notificationCount > 9 ? '9+' : notificationCount}
+                    </Text>
+                  </View>
+                ) : null}
               </Pressable>
 
               <Image

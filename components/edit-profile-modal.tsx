@@ -116,6 +116,10 @@ export function EditProfileModal({ visible, onClose, onProfileUpdated }: EditPro
 
   const handleSave = async () => {
     if (loading) return;
+    if (!profile) {
+      Alert.alert('Profile unavailable', 'Your profile is still loading. Please try again in a moment.');
+      return;
+    }
 
     // Validate inputs
     const usernameValidation = validateUsername(username);
@@ -312,9 +316,9 @@ export function EditProfileModal({ visible, onClose, onProfileUpdated }: EditPro
             {/* Save Button */}
             <Pressable
               onPress={handleSave}
-              disabled={loading || !!usernameError || !!userTagError}
+              disabled={loading || !profile || !!usernameError || !!userTagError}
               style={{
-                backgroundColor: loading || usernameError || userTagError 
+                backgroundColor: loading || !profile || usernameError || userTagError 
                   ? 'rgba(232, 100, 10, 0.3)' 
                   : Colors.orange,
                 borderRadius: 16,
@@ -324,7 +328,7 @@ export function EditProfileModal({ visible, onClose, onProfileUpdated }: EditPro
             >
               <Text
                 style={{
-                  color: loading || usernameError || userTagError 
+                  color: loading || !profile || usernameError || userTagError 
                     ? 'rgba(255,255,255,0.5)' 
                     : Colors.textPrimary,
                   fontSize: 16,

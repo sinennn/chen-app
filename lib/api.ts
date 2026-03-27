@@ -90,6 +90,13 @@ export type Friend = {
   current_track?: ActivityItem;
 };
 
+export type PendingFriendRequest = {
+  friendship_id: string;
+  requester: FriendSearchResult;
+  is_online: boolean;
+  current_track?: ActivityItem;
+};
+
 export type FriendSearchResult = {
   id: string;
   username: string;
@@ -108,6 +115,16 @@ export type FriendRecommendation = {
   current_track?: ActivityItem;
 };
 
+export type FriendDiscoverResult = {
+  id: string;
+  username: string;
+  user_tag?: string;
+  avatar_id: string;
+  relationship_status: 'none' | 'self' | 'friends' | 'outgoing_pending' | 'incoming_pending';
+  is_online: boolean;
+  current_track?: ActivityItem;
+};
+
 export type UserProfile = {
   id: string;
   email: string;
@@ -120,6 +137,79 @@ export type UserProfile = {
 
 export type ChatResponse = {
   reply: string;
+};
+
+export type ChenConversationMessage = {
+  role: 'user' | 'assistant';
+  content: string;
+};
+
+export type ChenConversation = {
+  messages: ChenConversationMessage[];
+};
+
+export type MessageFriend = {
+  id: string;
+  username: string;
+  avatar_id: string;
+};
+
+export type DirectMessage = {
+  id: string;
+  sender_id: string;
+  recipient_id: string;
+  content: string;
+  message_type: 'text' | 'voice';
+  audio_url?: string;
+  audio_duration_ms?: number;
+  created_at: string;
+  read_at?: string;
+  is_mine: boolean;
+};
+
+export type MessageThread = {
+  friend: MessageFriend;
+  lastMessage?: DirectMessage;
+  unreadCount: number;
+};
+
+export type MessageThreadResponse = {
+  friend: MessageFriend;
+  messages: DirectMessage[];
+};
+
+export type SendDirectMessagePayload = {
+  content?: string;
+  message_type?: 'text' | 'voice';
+  audio_url?: string;
+  audio_duration_ms?: number;
+};
+
+export type NotificationActor = {
+  id: string;
+  username: string;
+  avatar_id: string;
+};
+
+export type NotificationItem = {
+  id: string;
+  type: string;
+  title: string;
+  body: string;
+  entity_id?: string;
+  metadata: Record<string, any>;
+  read_at?: string;
+  created_at: string;
+  actor?: NotificationActor;
+};
+
+export type NotificationListResponse = {
+  items: NotificationItem[];
+  unreadCount: number;
+};
+
+export type NotificationUnreadCount = {
+  count: number;
 };
 
 export type RecommendedTrack = {
@@ -208,6 +298,8 @@ export const api = {
   },
   friends: {
     list: () => getJSON<Friend[]>('/friends'),
+    discover: () => getJSON<FriendDiscoverResult[]>('/friends/discover'),
+    requests: () => getJSON<PendingFriendRequest[]>('/friends/requests'),
     search: (query: string) => getJSON<FriendSearchResult[]>(`/friends/search?q=${encodeURIComponent(query)}`),
     recommendations: () => getJSON<FriendRecommendation[]>('/friends/recommendations'),
     add: (username: string) => postJSON('/friends/add', { username }),
@@ -217,8 +309,16 @@ export const api = {
   spotify: {
     nowPlaying: () => getJSON<ActivityItem | null>('/spotify/now-playing'),
     recent: () => getJSON<ActivityItem[]>('/spotify/recent'),
-    topArtists: (timeRange = 'short_term', limit = 5) =>
-      getJSON<SpotifyTopArtistsResponse>(`/spotify/top-artists?time_range=${encodeURIComponent(timeRange)}&limit=${limit}`),
+    topArtists: (timeRange = 'short_term', limit = 5, options?: { fresh?: boolean }) => {
+      const params = new URLSearchParams({
+        time_range: timeRange,
+        limit: String(limit),
+      });
+      if (options?.fresh) {
+        params.set('fresh', 'true');
+      }
+      return getJSON<SpotifyTopArtistsResponse>(`/spotify/top-artists?${params.toString()}`);
+    },
     recommendations: () => getJSON<RecommendedTrack[]>('/spotify/recommendations'),
     connect: (accessToken: string, refreshToken: string, expiresIn: number) => 
       postJSON('/spotify/connect', { access_token: accessToken, refresh_token: refreshToken, expires_in: expiresIn }),
@@ -229,7 +329,14 @@ export const api = {
     stats: () => getJSON<any>('/profile/stats'),
     topArtists: () => getJSON<any[]>('/profile/top-artists'),
     topTracks: () => getJSON<any[]>('/profile/top-tracks'),
-    user: (userId: string) => getJSON<PublicProfileData>(`/profile/users/${encodeURIComponent(userId)}`),
+    user: (userId: string, options?: { fresh?: boolean }) => {
+      const params = new URLSearchParams();
+      if (options?.fresh) {
+        params.set('fresh', 'true');
+      }
+      const suffix = params.toString() ? `?${params.toString()}` : '';
+      return getJSON<PublicProfileData>(`/profile/users/${encodeURIComponent(userId)}${suffix}`);
+    },
   },
   reactions: {
     engagement: (activityIds: string[]) =>
@@ -248,7 +355,24 @@ export const api = {
         reaction_type: reactionType,
       }),
   },
+  notifications: {
+    list: () => getJSON<NotificationListResponse>('/notifications'),
+    unreadCount: () => getJSON<NotificationUnreadCount>('/notifications/unread-count'),
+    markRead: (id: string) => postJSON(`/notifications/${encodeURIComponent(id)}/read`, {}),
+    markAllRead: () => postJSON('/notifications/read-all', {}),
+  },
+  messages: {
+    threads: () => getJSON<MessageThread[]>('/messages/threads'),
+    thread: (friendId: string) => getJSON<MessageThreadResponse>(`/messages/${encodeURIComponent(friendId)}`),
+    send: (friendId: string, payload: string | SendDirectMessagePayload) =>
+      postJSON<DirectMessage>(
+        `/messages/${encodeURIComponent(friendId)}`,
+        typeof payload === 'string' ? { content: payload, message_type: 'text' } : payload
+      ),
+    markRead: (friendId: string) => postJSON(`/messages/${encodeURIComponent(friendId)}/read`, {}),
+  },
   chen: {
+    conversation: () => getJSON<ChenConversation>('/chen/conversation'),
     chat: (message: string, history: any[]) => postJSON<ChatResponse>('/chen/chat', { message, history }),
   },
 };

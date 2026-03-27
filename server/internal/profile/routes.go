@@ -403,6 +403,7 @@ func getPublicProfile(c *gin.Context) {
 	}
 
 	targetUserID := strings.TrimSpace(c.Param("userID"))
+	forceFresh := c.Query("fresh") == "true"
 	if targetUserID == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "User ID is required"})
 		return
@@ -436,7 +437,7 @@ func getPublicProfile(c *gin.Context) {
 		return
 	}
 
-	nowPlaying, recentTracks, topTracks, topArtists := loadPublicSpotifyProfileSections(targetUserID)
+	nowPlaying, recentTracks, topTracks, topArtists := loadPublicSpotifyProfileSections(targetUserID, forceFresh)
 
 	relationship, err := friends.GetRelationship(requestUserID, targetUserID)
 	if err != nil {
@@ -464,7 +465,7 @@ func getPublicProfile(c *gin.Context) {
 	})
 }
 
-func loadPublicSpotifyProfileSections(userID string) (*PublicProfileTrack, []PublicProfileTrack, []ProfileTopTrack, []ProfileTopArtist) {
+func loadPublicSpotifyProfileSections(userID string, forceFresh bool) (*PublicProfileTrack, []PublicProfileTrack, []ProfileTopTrack, []ProfileTopArtist) {
 	spotifyClient, _, err := spotify.GetAuthorizedClient(userID)
 	if err != nil {
 		if errors.Is(err, spotify.ErrNoSpotifyConnection) || spotify.IsRateLimitError(err) {
@@ -473,6 +474,10 @@ func loadPublicSpotifyProfileSections(userID string) (*PublicProfileTrack, []Pub
 
 		log.Printf("public profile spotify client load failed user=%s err=%v", userID, err)
 		return nil, []PublicProfileTrack{}, []ProfileTopTrack{}, []ProfileTopArtist{}
+	}
+
+	if forceFresh {
+		spotifyClient.InvalidateTopArtistCaches("short_term", 5, 10, 50)
 	}
 
 	return loadPublicNowPlaying(spotifyClient, userID),

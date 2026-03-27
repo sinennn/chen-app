@@ -27,6 +27,9 @@ const MAPPING = {
   'checkmark.circle.fill': 'check-circle',
   'music.note': 'music-note',
   'play.fill': 'play-arrow',
+  'pause.fill': 'pause',
+  'mic.fill': 'mic',
+  'stop.fill': 'stop',
   'message.fill': 'chat',
   // Additional symbols for Chen app tabs
   'flame.fill': 'whatshot',

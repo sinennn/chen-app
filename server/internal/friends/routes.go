@@ -9,9 +9,11 @@ import (
 	"time"
 
 	"chen/internal/auth"
+	"chen/internal/notifications"
 	"chen/pkg/supabase"
 
 	"github.com/gin-gonic/gin"
+	"github.com/supabase-community/postgrest-go"
 )
 
 type Friend struct {
@@ -55,6 +57,16 @@ type Recommendation struct {
 	CurrentTrack  *ActivityItem `json:"current_track,omitempty"`
 }
 
+type DiscoverUser struct {
+	ID                 string        `json:"id"`
+	Username           string        `json:"username"`
+	UserTag            string        `json:"user_tag,omitempty"`
+	AvatarID           string        `json:"avatar_id"`
+	RelationshipStatus string        `json:"relationship_status"`
+	IsOnline           bool          `json:"is_online"`
+	CurrentTrack       *ActivityItem `json:"current_track,omitempty"`
+}
+
 type AddFriendRequest struct {
 	Username string `json:"username" binding:"required"`
 }
@@ -63,8 +75,17 @@ type FriendshipActionRequest struct {
 	FriendshipID string `json:"friendship_id" binding:"required"`
 }
 
+type PendingFriendRequest struct {
+	FriendshipID string        `json:"friendship_id"`
+	Requester    SearchResult  `json:"requester"`
+	IsOnline     bool          `json:"is_online"`
+	CurrentTrack *ActivityItem `json:"current_track,omitempty"`
+}
+
 func RegisterRoutes(rg *gin.RouterGroup) {
 	rg.GET("", getFriends)
+	rg.GET("/discover", getDiscoverUsers)
+	rg.GET("/requests", getPendingRequests)
 	rg.GET("/search", searchUsers)
 	rg.GET("/recommendations", getRecommendations)
 	rg.POST("/add", addFriend)
@@ -201,6 +222,86 @@ func searchUsers(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, results)
+}
+
+func getDiscoverUsers(c *gin.Context) {
+	userID, exists := auth.GetUserFromContext(c)
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
+		return
+	}
+
+	client := supabase.GetClient()
+	if client == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Database connection failed"})
+		return
+	}
+
+	friendIDs, err := GetAcceptedFriendIDs(userID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch friendships"})
+		return
+	}
+
+	query := client.From("users").
+		Select("id,username,user_tag,avatar_id", "", false).
+		Neq("id", userID)
+
+	if len(friendIDs) > 0 {
+		query = query.Not("id", "in", fmt.Sprintf("(%s)", strings.Join(friendIDs, ",")))
+	}
+
+	data, _, err := query.
+		Order("username", &postgrest.OrderOpts{Ascending: true}).
+		Limit(24, "").
+		Execute()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch discover users"})
+		return
+	}
+
+	var rows []map[string]any
+	if err := json.Unmarshal(data, &rows); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to parse discover users"})
+		return
+	}
+
+	candidateIDs := make([]string, 0, len(rows))
+	for _, row := range rows {
+		candidateID := toString(row["id"])
+		if candidateID == "" {
+			continue
+		}
+		candidateIDs = append(candidateIDs, candidateID)
+	}
+
+	latestActivityByUser, _ := getLatestActivity(candidateIDs)
+	discoverUsers := make([]DiscoverUser, 0, len(rows))
+	for _, row := range rows {
+		candidateID := toString(row["id"])
+		if candidateID == "" {
+			continue
+		}
+
+		relationship, err := GetRelationship(userID, candidateID)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to resolve relationship state"})
+			return
+		}
+
+		activity := latestActivityByUser[candidateID]
+		discoverUsers = append(discoverUsers, DiscoverUser{
+			ID:                 candidateID,
+			Username:           toString(row["username"]),
+			UserTag:            toString(row["user_tag"]),
+			AvatarID:           toString(row["avatar_id"]),
+			RelationshipStatus: relationship.Status,
+			IsOnline:           activity != nil && activity.IsPlaying,
+			CurrentTrack:       activity,
+		})
+	}
+
+	c.JSON(http.StatusOK, discoverUsers)
 }
 
 func getRecommendations(c *gin.Context) {
@@ -372,7 +473,7 @@ func addFriend(c *gin.Context) {
 		}
 	}
 
-	_, _, err = client.From("friendships").Insert(map[string]any{
+	friendshipData, _, err := client.From("friendships").Insert(map[string]any{
 		"requester_id": userID,
 		"addressee_id": friendID,
 		"status":       "pending",
@@ -381,6 +482,29 @@ func addFriend(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to send friend request"})
 		return
 	}
+
+	friendshipID := ""
+	var friendshipRows []map[string]any
+	if err := json.Unmarshal(friendshipData, &friendshipRows); err == nil && len(friendshipRows) > 0 {
+		friendshipID = toString(friendshipRows[0]["id"])
+	}
+
+	requesterName := username
+	if me, meErr := loadBasicUser(userID); meErr == nil && me.Username != "" {
+		requesterName = me.Username
+	}
+	_ = notifications.CreateNotification(
+		friendID,
+		userID,
+		"friend_request",
+		fmt.Sprintf("%s sent you a friend request", requesterName),
+		"Open Chen to accept or view their profile.",
+		friendshipID,
+		map[string]any{
+			"friendshipId": friendshipID,
+			"requesterId":  userID,
+		},
+	)
 
 	c.JSON(http.StatusOK, gin.H{"message": "Friend request sent successfully"})
 }
@@ -412,6 +536,39 @@ func acceptFriend(c *gin.Context) {
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to accept friend request"})
 		return
+	}
+
+	requesterID, requesterName := "", ""
+	data, _, fetchErr := client.From("friendships").
+		Select("requester_id", "", false).
+		Eq("id", req.FriendshipID).
+		Limit(1, "").
+		Execute()
+	if fetchErr == nil {
+		var rows []map[string]any
+		if json.Unmarshal(data, &rows) == nil && len(rows) > 0 {
+			requesterID = toString(rows[0]["requester_id"])
+		}
+	}
+	if requesterID != "" {
+		if me, meErr := loadBasicUser(userID); meErr == nil {
+			requesterName = me.Username
+		}
+		if requesterName == "" {
+			requesterName = "Someone"
+		}
+		_ = notifications.CreateNotification(
+			requesterID,
+			userID,
+			"friend_accept",
+			fmt.Sprintf("%s accepted your friend request", requesterName),
+			"Your taste network just grew.",
+			req.FriendshipID,
+			map[string]any{
+				"friendshipId": req.FriendshipID,
+				"friendId":     userID,
+			},
+		)
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "Friend request accepted"})
@@ -485,6 +642,75 @@ func getCompatibilityScores(userID string) (map[string]int, error) {
 	}
 
 	return scores, nil
+}
+
+func getPendingRequests(c *gin.Context) {
+	userID, exists := auth.GetUserFromContext(c)
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
+		return
+	}
+
+	client := supabase.GetClient()
+	if client == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Database connection failed"})
+		return
+	}
+
+	data, _, err := client.From("friendships").
+		Select("id,requester_id", "", false).
+		Eq("addressee_id", userID).
+		Eq("status", "pending").
+		Execute()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to load friend requests"})
+		return
+	}
+
+	var rows []map[string]any
+	if err := json.Unmarshal(data, &rows); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to parse friend requests"})
+		return
+	}
+
+	requesterIDs := make([]string, 0, len(rows))
+	for _, row := range rows {
+		requesterID := toString(row["requester_id"])
+		if requesterID != "" {
+			requesterIDs = append(requesterIDs, requesterID)
+		}
+	}
+
+	usersByID, err := loadBasicUsers(requesterIDs)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to load request senders"})
+		return
+	}
+	latestActivityByUser, _ := getLatestActivity(requesterIDs)
+
+	requests := make([]PendingFriendRequest, 0, len(rows))
+	for _, row := range rows {
+		requesterID := toString(row["requester_id"])
+		user, ok := usersByID[requesterID]
+		if !ok {
+			continue
+		}
+		activity := latestActivityByUser[requesterID]
+		requests = append(requests, PendingFriendRequest{
+			FriendshipID: toString(row["id"]),
+			Requester: SearchResult{
+				ID:                 user.ID,
+				Username:           user.Username,
+				UserTag:            user.UserTag,
+				AvatarID:           user.AvatarID,
+				RelationshipStatus: RelationshipStatusIncomingPending,
+			},
+			IsOnline:     activity != nil && activity.IsPlaying,
+			CurrentTrack: activity,
+		})
+	}
+
+	c.JSON(http.StatusOK, requests)
 }
 
 func getRelationshipUserIDs(userID string) ([]string, error) {
@@ -568,6 +794,77 @@ func getLatestActivity(friendIDs []string) (map[string]*ActivityItem, error) {
 	}
 
 	return activities, nil
+}
+
+type basicUser struct {
+	ID       string
+	Username string
+	UserTag  string
+	AvatarID string
+}
+
+func loadBasicUser(userID string) (basicUser, error) {
+	users, err := loadBasicUsers([]string{userID})
+	if err != nil {
+		return basicUser{}, err
+	}
+	user, ok := users[userID]
+	if !ok {
+		return basicUser{}, fmt.Errorf("user not found")
+	}
+	return user, nil
+}
+
+func loadBasicUsers(userIDs []string) (map[string]basicUser, error) {
+	ids := make([]string, 0, len(userIDs))
+	seen := make(map[string]struct{}, len(userIDs))
+	for _, userID := range userIDs {
+		if userID == "" {
+			continue
+		}
+		if _, exists := seen[userID]; exists {
+			continue
+		}
+		seen[userID] = struct{}{}
+		ids = append(ids, userID)
+	}
+	if len(ids) == 0 {
+		return map[string]basicUser{}, nil
+	}
+
+	client := supabase.GetClient()
+	if client == nil {
+		return nil, fmt.Errorf("database connection failed")
+	}
+
+	data, _, err := client.From("users").
+		Select("id,username,user_tag,avatar_id", "", false).
+		In("id", ids).
+		Execute()
+	if err != nil {
+		return nil, err
+	}
+
+	var rows []map[string]any
+	if err := json.Unmarshal(data, &rows); err != nil {
+		return nil, err
+	}
+
+	result := make(map[string]basicUser, len(rows))
+	for _, row := range rows {
+		id := toString(row["id"])
+		if id == "" {
+			continue
+		}
+		result[id] = basicUser{
+			ID:       id,
+			Username: toString(row["username"]),
+			UserTag:  toString(row["user_tag"]),
+			AvatarID: toString(row["avatar_id"]),
+		}
+	}
+
+	return result, nil
 }
 
 func toBool(value any) bool {

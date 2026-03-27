@@ -93,7 +93,7 @@ export default function SignupScreen() {
             className="text-3xl font-semibold mt-32"
             style={{ color: Colors.textPrimary }}
           >
-            Create Account
+            Welcome !!!
           </Text>
 
           <Text
@@ -128,7 +128,7 @@ export default function SignupScreen() {
                 className="text-sm font-semibold"
                 style={{ color: Colors.textPrimary }}
               >
-                {googleLoading ? 'Creating account...' : 'Continue with Google'}
+                {googleLoading ? ' ' : 'Continue with Google'}
               </Text>
             </Pressable>
 
@@ -197,7 +197,7 @@ export default function SignupScreen() {
                 className="text-sm font-semibold"
                 style={{ color: Colors.textPrimary }}
               >
-                {appleLoading ? 'Creating account...' : 'Continue with Apple'}
+                {appleLoading ? ' ' : 'Continue with Apple'}
               </Text>
             </Pressable>
           </View>

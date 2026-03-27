@@ -17,7 +17,8 @@ var sharedSpotifyCache = newSharedCache()
 const (
 	currentlyPlayingTTL = 30 * time.Second
 	recentlyPlayedTTL   = 5 * time.Minute
-	topDataTTL          = 12 * time.Hour
+	topTracksTTL        = 12 * time.Hour
+	topArtistsTTL       = 24 * time.Hour
 	recommendationsTTL  = 6 * time.Hour
 	artistLookupTTL     = 7 * 24 * time.Hour
 	trackLookupTTL      = 7 * 24 * time.Hour
@@ -235,6 +236,28 @@ func (sc *SpotifyClient) cacheKey(endpoint string) string {
 
 func globalResourceCacheKey(resource string) string {
 	return "global:" + resource
+}
+
+func (sc *SpotifyClient) topArtistsCacheKey(timeRange string) string {
+	return sc.cacheKey("top-artists:v2:" + timeRange)
+}
+
+func (sc *SpotifyClient) topArtistsRawCacheKey(timeRange string, limit int) string {
+	return sc.cacheKey(fmt.Sprintf("top-artists-raw:v2:%s:%d", timeRange, limit))
+}
+
+func (sc *SpotifyClient) InvalidateTopArtistCaches(timeRange string, limits ...int) {
+	if timeRange == "" {
+		timeRange = "medium_term"
+	}
+
+	sharedSpotifyCache.Delete(sc.topArtistsCacheKey(timeRange))
+	for _, limit := range limits {
+		if limit <= 0 {
+			continue
+		}
+		sharedSpotifyCache.Delete(sc.topArtistsRawCacheKey(timeRange, limit))
+	}
 }
 
 func (sc *SpotifyClient) doRequest(endpoint, method, requestURL string, body io.Reader, headers map[string]string) ([]byte, int, error) {
@@ -458,7 +481,7 @@ func (sc *SpotifyClient) GetTopTracks(timeRange string) ([]TopTrack, error) {
 		timeRange = "medium_term"
 	}
 
-	return loadSharedResource(sharedSpotifyCache, sc.cacheKey("top-tracks:"+timeRange), topDataTTL, func() ([]TopTrack, error) {
+	return loadSharedResource(sharedSpotifyCache, sc.cacheKey("top-tracks:"+timeRange), topTracksTTL, func() ([]TopTrack, error) {
 		var tracks []TopTrack
 		err := retryWithBackoff(func() error {
 			requestURL := fmt.Sprintf("https://api.spotify.com/v1/me/top/tracks?time_range=%s&limit=50", timeRange)
@@ -503,7 +526,7 @@ func (sc *SpotifyClient) GetTopArtists(timeRange string) ([]TopArtist, error) {
 		timeRange = "medium_term"
 	}
 
-	cacheKey := sc.cacheKey("top-artists:" + timeRange)
+	cacheKey := sc.topArtistsCacheKey(timeRange)
 	if cached, ok := sharedSpotifyCache.getFresh(cacheKey); ok {
 		if artists, ok := cached.([]TopArtist); ok {
 			if hasAnyGenres(artists) {
@@ -514,7 +537,7 @@ func (sc *SpotifyClient) GetTopArtists(timeRange string) ([]TopArtist, error) {
 		}
 	}
 
-	return loadSharedResource(sharedSpotifyCache, cacheKey, topDataTTL, func() ([]TopArtist, error) {
+	return loadSharedResource(sharedSpotifyCache, cacheKey, topArtistsTTL, func() ([]TopArtist, error) {
 		response, err := sc.GetTopArtistsRaw(timeRange, 50)
 		if err != nil {
 			return nil, err
@@ -554,7 +577,7 @@ func (sc *SpotifyClient) GetTopArtistsRaw(timeRange string, limit int) (*Spotify
 		limit = 50
 	}
 
-	cacheKey := sc.cacheKey(fmt.Sprintf("top-artists-raw:%s:%d", timeRange, limit))
+	cacheKey := sc.topArtistsRawCacheKey(timeRange, limit)
 	if cached, ok := sharedSpotifyCache.getFresh(cacheKey); ok {
 		if response, ok := cached.(*SpotifyTopArtistsResponse); ok {
 			if hasAnyGenresInTopArtistResponse(response) {
@@ -565,7 +588,7 @@ func (sc *SpotifyClient) GetTopArtistsRaw(timeRange string, limit int) (*Spotify
 		}
 	}
 
-	return loadSharedResource(sharedSpotifyCache, cacheKey, topDataTTL, func() (*SpotifyTopArtistsResponse, error) {
+	return loadSharedResource(sharedSpotifyCache, cacheKey, topArtistsTTL, func() (*SpotifyTopArtistsResponse, error) {
 		var response *SpotifyTopArtistsResponse
 		err := retryWithBackoff(func() error {
 			requestURL := fmt.Sprintf("https://api.spotify.com/v1/me/top/artists?time_range=%s&limit=%d", timeRange, limit)

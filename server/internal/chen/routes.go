@@ -6,20 +6,30 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
+	"chen/internal/auth"
+	"chen/internal/friends"
+	"chen/internal/spotify"
 	"chen/pkg/supabase"
+
+	gosupabase "github.com/supabase-community/supabase-go"
 
 	"github.com/gin-gonic/gin"
 )
 
 type ChatRequest struct {
-	Message string                 `json:"message"`
-	History []map[string]interface{} `json:"history"`
+	Message string                `json:"message"`
+	History []ConversationMessage `json:"history"`
 }
 
 type ChatResponse struct {
 	Reply string `json:"reply"`
+}
+
+type ConversationResponse struct {
+	Messages []ConversationMessage `json:"messages"`
 }
 
 type ConversationMessage struct {
@@ -27,26 +37,28 @@ type ConversationMessage struct {
 	Content string `json:"content"`
 }
 
+type musicContext struct {
+	Username         string
+	NowPlaying       string
+	RecentTracks     string
+	FriendsListening string
+	TopArtists       string
+	TopTracks        string
+	HasNowPlaying    bool
+	HasRecentTracks  bool
+	HasFriendActivity bool
+	HasTasteProfile  bool
+}
+
 func RegisterRoutes(rg *gin.RouterGroup) {
+	rg.GET("/conversation", getConversation)
 	rg.POST("/chat", handleChat)
 }
 
-func handleChat(c *gin.Context) {
-	userID, exists := c.Get("user_id")
+func getConversation(c *gin.Context) {
+	userID, exists := auth.GetUserFromContext(c)
 	if !exists {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
-		return
-	}
-
-	userIDStr, ok := userID.(string)
-	if !ok {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Invalid user ID"})
-		return
-	}
-
-	var req ChatRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body"})
 		return
 	}
 
@@ -56,141 +68,102 @@ func handleChat(c *gin.Context) {
 		return
 	}
 
-	// Get user's now playing
-	nowPlayingQuery := `
-		listening_activity.id,
-		listening_activity.track_name,
-		listening_activity.artist_name,
-		users!inner(username)
-	`
-	nowPlayingData, _, err := client.From("listening_activity").
-		Select(nowPlayingQuery, "", false).
-		Eq("user_id", userIDStr).
-		Eq("is_playing", "true").
-		Order("started_at", nil).
-		Limit(1, "").
-		Execute()
+	messages, err := loadConversationMessages(client, userID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to load conversation"})
+		return
+	}
 
-	var nowPlaying string
-	if err == nil && len(nowPlayingData) > 0 {
-		var activity map[string]interface{}
-		if err := json.Unmarshal(nowPlayingData, &activity); err == nil {
-			if track, ok := activity["track_name"].(string); ok {
-				if artist, ok := activity["artist_name"].(string); ok {
-					nowPlaying = fmt.Sprintf("%s by %s", track, artist)
-				}
-			}
+	if len(messages) == 0 {
+		context, err := buildMusicContext(client, userID)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to load conversation"})
+			return
+		}
+
+		messages = []ConversationMessage{
+			{
+				Role:    "assistant",
+				Content: buildIntroMessage(userID, context),
+			},
 		}
 	}
-	if nowPlaying == "" {
-		nowPlaying = "not playing anything right now"
+
+	c.JSON(http.StatusOK, ConversationResponse{Messages: messages})
+}
+
+func handleChat(c *gin.Context) {
+	userID, exists := auth.GetUserFromContext(c)
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
+		return
 	}
 
-	// Get friends' now playing
-	friendsQuery := `
-		listening_activity.id,
-		listening_activity.track_name,
-		listening_activity.artist_name,
-		listening_activity.user_id,
-		users!inner(username)
-	`
-	friendsData, _, err := client.From("listening_activity").
-		Select(friendsQuery, "", false).
-		Eq("is_playing", "true").
-		Order("started_at", nil).
-		Limit(5, "").
-		Execute()
+	var req ChatRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body"})
+		return
+	}
 
-	var friendsListening string
-	if err == nil && len(friendsData) > 0 {
-		var activities []map[string]interface{}
-		if err := json.Unmarshal(friendsData, &activities); err == nil {
-			for _, activity := range activities {
-				if activityUserID, ok := activity["user_id"].(string); ok && activityUserID != userIDStr {
-					if track, ok := activity["track_name"].(string); ok {
-						if artist, ok := activity["artist_name"].(string); ok {
-							if users, ok := activity["users"].(map[string]interface{}); ok {
-								if username, ok := users["username"].(string); ok {
-									if friendsListening != "" {
-										friendsListening += ", "
-									}
-									friendsListening += fmt.Sprintf("%s: %s by %s", username, track, artist)
-								}
-							}
-						}
-					}
-				}
-			}
+	message := strings.TrimSpace(req.Message)
+	if message == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Message is required"})
+		return
+	}
+
+	client := supabase.GetClient()
+	if client == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Database connection failed"})
+		return
+	}
+
+	context, err := buildMusicContext(client, userID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to build Chen context"})
+		return
+	}
+
+	history := sanitizeConversationMessages(req.History)
+	if len(history) == 0 {
+		history, err = loadConversationMessages(client, userID)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to load conversation history"})
+			return
 		}
 	}
-	if friendsListening == "" {
-		friendsListening = "none"
-	}
 
-	// Get user's recent tracks
-	recentQuery := `
-		listening_activity.id,
-		listening_activity.track_name,
-		listening_activity.artist_name,
-		users!inner(username)
-	`
-	recentData, _, err := client.From("listening_activity").
-		Select(recentQuery, "", false).
-		Eq("user_id", userIDStr).
-		Order("started_at", nil).
-		Limit(10, "").
-		Execute()
-
-	var recentTracks string
-	if err == nil && len(recentData) > 0 {
-		var activities []map[string]interface{}
-		if err := json.Unmarshal(recentData, &activities); err == nil {
-			for i, activity := range activities {
-				if track, ok := activity["track_name"].(string); ok {
-					if artist, ok := activity["artist_name"].(string); ok {
-						if i > 0 {
-							recentTracks += ", "
-						}
-						recentTracks += fmt.Sprintf("%s by %s", track, artist)
-					}
-				}
-			}
+	if len(history) == 0 {
+		history = []ConversationMessage{
+			{
+				Role:    "assistant",
+				Content: buildIntroMessage(userID, context),
+			},
 		}
 	}
-	if recentTracks == "" {
-		recentTracks = "none"
+
+	systemPrompt := buildSystemPrompt(context)
+	groqMessages := []map[string]interface{}{
+		{"role": "system", "content": systemPrompt},
 	}
 
-	// Build system prompt
-	systemPrompt := fmt.Sprintf(`
-You are Chen, a music AI companion. You are intimate, perceptive, and deeply knowledgeable about music. You speak like a close friend who really gets music — warm, direct, no corporate speak. You know what the user is listening to and use that context naturally.
+	for _, msg := range history {
+		groqMessages = append(groqMessages, map[string]interface{}{
+			"role":    normalizeModelRole(msg.Role),
+			"content": msg.Content,
+		})
+	}
 
-Current user context:
-- Now playing: %s
-- Recently played: %s
-- Friends currently listening: %s
+	groqMessages = append(groqMessages, map[string]interface{}{
+		"role":    "user",
+		"content": message,
+	})
 
-Keep responses concise — 2-4 sentences max unless the user asks for something detailed. Never say you are an AI. Never break character.
-	`, nowPlaying, recentTracks, friendsListening)
-
-	// Call Groq API
 	groqReqBody := map[string]interface{}{
-		"model": "llama-3.3-70b-versatile",
-		"messages": []map[string]interface{}{
-			{"role": "system", "content": systemPrompt},
-		},
+		"model":       "llama-3.3-70b-versatile",
+		"messages":    groqMessages,
 		"max_tokens":  300,
 		"temperature": 0.85,
 	}
-
-	// Add history and current message
-	for _, msg := range req.History {
-		groqReqBody["messages"] = append(groqReqBody["messages"].([]map[string]interface{}), msg)
-	}
-	groqReqBody["messages"] = append(groqReqBody["messages"].([]map[string]interface{}), map[string]interface{}{
-		"role":    "user",
-		"content": req.Message,
-	})
 
 	reqBodyBytes, err := json.Marshal(groqReqBody)
 	if err != nil {
@@ -244,26 +217,395 @@ Keep responses concise — 2-4 sentences max unless the user asks for something 
 		return
 	}
 
-	reply := groqResp.Choices[0].Message.Content
-
-	// Save conversation to database
-	fullHistory := req.History
-	fullHistory = append(fullHistory, map[string]interface{}{"role": "user", "content": req.Message})
-	fullHistory = append(fullHistory, map[string]interface{}{"role": "assistant", "content": reply})
-
-	conversationData := map[string]interface{}{
-		"user_id": userIDStr,
-		"messages": fullHistory,
+	reply := strings.TrimSpace(groqResp.Choices[0].Message.Content)
+	if reply == "" {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "No response from Groq"})
+		return
 	}
 
-	_, _, err = client.From("chen_conversations").
-		Upsert(conversationData, "user_id", "", "").
-		Execute()
+	updatedHistory := append([]ConversationMessage{}, history...)
+	updatedHistory = append(updatedHistory,
+		ConversationMessage{Role: "user", Content: message},
+		ConversationMessage{Role: "assistant", Content: reply},
+	)
 
-	if err != nil {
-		// Log error but don't fail the response
+	if err := saveConversationMessages(client, userID, updatedHistory); err != nil {
 		fmt.Printf("Failed to save conversation: %v\n", err)
 	}
 
 	c.JSON(http.StatusOK, ChatResponse{Reply: reply})
+}
+
+func buildMusicContext(client *gosupabase.Client, userID string) (musicContext, error) {
+	context := musicContext{
+		Username:          "you",
+		NowPlaying:        "not playing anything right now",
+		RecentTracks:      "none",
+		FriendsListening:  "none",
+		TopArtists:        "unavailable",
+		TopTracks:         "unavailable",
+		HasNowPlaying:     false,
+		HasRecentTracks:   false,
+		HasFriendActivity: false,
+		HasTasteProfile:   false,
+	}
+
+	userData, _, err := client.From("users").
+		Select("username", "", false).
+		Eq("id", userID).
+		Limit(1, "").
+		Execute()
+	if err == nil {
+		var rows []map[string]interface{}
+		if json.Unmarshal(userData, &rows) == nil && len(rows) > 0 {
+			if username := toString(rows[0]["username"]); username != "" {
+				context.Username = username
+			}
+		}
+	}
+
+	nowPlayingQuery := `
+		listening_activity.id,
+		listening_activity.track_name,
+		listening_activity.artist_name
+	`
+	nowPlayingData, _, err := client.From("listening_activity").
+		Select(nowPlayingQuery, "", false).
+		Eq("user_id", userID).
+		Eq("is_playing", "true").
+		Order("started_at", nil).
+		Limit(1, "").
+		Execute()
+	if err == nil {
+		var activities []map[string]interface{}
+		if json.Unmarshal(nowPlayingData, &activities) == nil && len(activities) > 0 {
+			track := toString(activities[0]["track_name"])
+			artist := toString(activities[0]["artist_name"])
+			if track != "" && artist != "" {
+				context.NowPlaying = fmt.Sprintf("%s by %s", track, artist)
+				context.HasNowPlaying = true
+			}
+		}
+	}
+
+	recentQuery := `
+		listening_activity.id,
+		listening_activity.track_name,
+		listening_activity.artist_name
+	`
+	recentData, _, err := client.From("listening_activity").
+		Select(recentQuery, "", false).
+		Eq("user_id", userID).
+		Order("started_at", nil).
+		Limit(10, "").
+		Execute()
+	if err == nil {
+		var activities []map[string]interface{}
+		if json.Unmarshal(recentData, &activities) == nil && len(activities) > 0 {
+			recentTracks := make([]string, 0, len(activities))
+			for _, activity := range activities {
+				track := toString(activity["track_name"])
+				artist := toString(activity["artist_name"])
+				if track == "" || artist == "" {
+					continue
+				}
+				recentTracks = append(recentTracks, fmt.Sprintf("%s by %s", track, artist))
+			}
+			if len(recentTracks) > 0 {
+				context.RecentTracks = strings.Join(recentTracks, ", ")
+				context.HasRecentTracks = true
+			}
+		}
+	}
+
+	friendIDs, friendErr := friends.GetAcceptedFriendIDs(userID)
+	if friendErr == nil && len(friendIDs) > 0 {
+		friendsQuery := `
+			listening_activity.id,
+			listening_activity.track_name,
+			listening_activity.artist_name,
+			listening_activity.user_id,
+			users!inner(username)
+		`
+		friendsData, _, err := client.From("listening_activity").
+			Select(friendsQuery, "", false).
+			In("user_id", friendIDs).
+			Eq("is_playing", "true").
+			Order("started_at", nil).
+			Limit(5, "").
+			Execute()
+		if err == nil {
+			var activities []map[string]interface{}
+			if json.Unmarshal(friendsData, &activities) == nil && len(activities) > 0 {
+				friendsListening := make([]string, 0, len(activities))
+				for _, activity := range activities {
+					track := toString(activity["track_name"])
+					artist := toString(activity["artist_name"])
+					if track == "" || artist == "" {
+						continue
+					}
+
+					users, ok := activity["users"].(map[string]interface{})
+					if !ok {
+						continue
+					}
+
+					username := toString(users["username"])
+					if username == "" {
+						continue
+					}
+
+					friendsListening = append(friendsListening, fmt.Sprintf("%s: %s by %s", username, track, artist))
+				}
+
+				if len(friendsListening) > 0 {
+					context.FriendsListening = strings.Join(friendsListening, ", ")
+					context.HasFriendActivity = true
+				}
+			}
+		}
+	}
+
+	spotifyClient, _, spotifyErr := spotify.GetAuthorizedClient(userID)
+	if spotifyErr == nil {
+		topArtists, artistsErr := spotifyClient.GetTopArtists("short_term")
+		if artistsErr == nil {
+			if summary := summarizeTopArtists(topArtists, 3); summary != "" {
+				context.TopArtists = summary
+				context.HasTasteProfile = true
+			}
+		}
+
+		topTracks, tracksErr := spotifyClient.GetTopTracks("short_term")
+		if tracksErr == nil {
+			if summary := summarizeTopTracks(topTracks, 3); summary != "" {
+				context.TopTracks = summary
+				context.HasTasteProfile = true
+			}
+		}
+	} else if !strings.Contains(strings.ToLower(spotifyErr.Error()), "spotify connection not found") && !spotify.IsRateLimitError(spotifyErr) {
+		return context, spotifyErr
+	}
+
+	return context, nil
+}
+
+func buildSystemPrompt(context musicContext) string {
+	return fmt.Sprintf(`
+You are Chen, a music AI companion. You are intimate, perceptive, and deeply knowledgeable about music. You speak like a close friend who really gets music — warm, direct, no corporate speak. You know what the user is listening to and use that context naturally.
+Use only facts supported by the context below. If the context is thin or missing, say so naturally and ask a question instead of inventing patterns, habits, or friend activity.
+
+Current user context:
+- Username: %s
+- Now playing: %s
+- Recently played: %s
+- Accepted friends currently listening: %s
+- Top artists from Spotify: %s
+- Top tracks from Spotify: %s
+- Context confidence: now_playing=%t, recent_history=%t, friend_activity=%t, spotify_taste=%t
+
+Keep responses concise — 2-4 sentences max unless the user asks for something detailed. Never say you are an AI. Never break character.
+	`, context.Username, context.NowPlaying, context.RecentTracks, context.FriendsListening, context.TopArtists, context.TopTracks, context.HasNowPlaying, context.HasRecentTracks, context.HasFriendActivity, context.HasTasteProfile)
+}
+
+func buildIntroMessage(userID string, context musicContext) string {
+	intros := []string{
+		"hey %s. i'm tuned into your side of chen. what are we unpacking tonight?",
+		"%s, i'm here and listening. want to talk about what you're playing or chase a new mood?",
+		"good to see you, %s. bring me the feeling and i'll bring the soundtrack.",
+		"%s, your room already has a sound to it. tell me what you want more of.",
+	}
+
+	index := deterministicIndex(userID, len(intros))
+	base := fmt.Sprintf(intros[index], context.Username)
+
+	switch {
+	case context.NowPlaying != "not playing anything right now":
+		return fmt.Sprintf("%s you started with %s, which already tells me a lot.", base, context.NowPlaying)
+	case context.RecentTracks != "none":
+		recent := context.RecentTracks
+		if len(recent) > 80 {
+			recent = recent[:80] + "..."
+		}
+		return fmt.Sprintf("%s your recent trail is %s.", base, recent)
+	default:
+		return fmt.Sprintf("%s we can start anywhere: a song, a mood, or a person you can't stop replaying.", base)
+	}
+}
+
+func deterministicIndex(seed string, size int) int {
+	if size <= 0 {
+		return 0
+	}
+
+	total := 0
+	for _, char := range seed {
+		total = (total*31 + int(char)) % 100000
+	}
+
+	if total < 0 {
+		total *= -1
+	}
+
+	return total % size
+}
+
+func summarizeTopArtists(artists []spotify.TopArtist, limit int) string {
+	if len(artists) == 0 || limit <= 0 {
+		return ""
+	}
+
+	parts := make([]string, 0, min(limit, len(artists)))
+	for _, artist := range artists[:min(limit, len(artists))] {
+		if strings.TrimSpace(artist.Name) == "" {
+			continue
+		}
+
+		if len(artist.Genres) > 0 && strings.TrimSpace(artist.Genres[0]) != "" {
+			parts = append(parts, fmt.Sprintf("%s (%s)", artist.Name, artist.Genres[0]))
+			continue
+		}
+
+		parts = append(parts, artist.Name)
+	}
+
+	return strings.Join(parts, ", ")
+}
+
+func summarizeTopTracks(tracks []spotify.TopTrack, limit int) string {
+	if len(tracks) == 0 || limit <= 0 {
+		return ""
+	}
+
+	parts := make([]string, 0, min(limit, len(tracks)))
+	for _, track := range tracks[:min(limit, len(tracks))] {
+		if strings.TrimSpace(track.Name) == "" || strings.TrimSpace(track.Artist) == "" {
+			continue
+		}
+
+		parts = append(parts, fmt.Sprintf("%s by %s", track.Name, track.Artist))
+	}
+
+	return strings.Join(parts, ", ")
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+func loadConversationMessages(client *gosupabase.Client, userID string) ([]ConversationMessage, error) {
+	data, _, err := client.From("chen_conversations").
+		Select("messages", "", false).
+		Eq("user_id", userID).
+		Limit(1, "").
+		Execute()
+	if err != nil {
+		return nil, err
+	}
+
+	var rows []map[string]interface{}
+	if err := json.Unmarshal(data, &rows); err != nil {
+		return nil, err
+	}
+
+	if len(rows) == 0 {
+		return []ConversationMessage{}, nil
+	}
+
+	return normalizeStoredMessages(rows[0]["messages"]), nil
+}
+
+func saveConversationMessages(client *gosupabase.Client, userID string, messages []ConversationMessage) error {
+	conversationData := map[string]interface{}{
+		"user_id":    userID,
+		"messages":   messages,
+		"updated_at": time.Now().UTC(),
+	}
+
+	_, _, err := client.From("chen_conversations").
+		Upsert(conversationData, "user_id", "", "").
+		Execute()
+	return err
+}
+
+func sanitizeConversationMessages(messages []ConversationMessage) []ConversationMessage {
+	sanitized := make([]ConversationMessage, 0, len(messages))
+	for _, msg := range messages {
+		content := strings.TrimSpace(msg.Content)
+		if content == "" {
+			continue
+		}
+
+		role := normalizeConversationRole(msg.Role)
+		if role == "" {
+			continue
+		}
+
+		sanitized = append(sanitized, ConversationMessage{
+			Role:    role,
+			Content: content,
+		})
+	}
+
+	return sanitized
+}
+
+func normalizeStoredMessages(raw interface{}) []ConversationMessage {
+	rawMessages, ok := raw.([]interface{})
+	if !ok {
+		return []ConversationMessage{}
+	}
+
+	messages := make([]ConversationMessage, 0, len(rawMessages))
+	for _, entry := range rawMessages {
+		payload, ok := entry.(map[string]interface{})
+		if !ok {
+			continue
+		}
+
+		content := strings.TrimSpace(toString(payload["content"]))
+		if content == "" {
+			continue
+		}
+
+		role := normalizeConversationRole(toString(payload["role"]))
+		if role == "" {
+			continue
+		}
+
+		messages = append(messages, ConversationMessage{
+			Role:    role,
+			Content: content,
+		})
+	}
+
+	return messages
+}
+
+func normalizeConversationRole(role string) string {
+	switch strings.ToLower(strings.TrimSpace(role)) {
+	case "user":
+		return "user"
+	case "assistant", "chen":
+		return "assistant"
+	default:
+		return ""
+	}
+}
+
+func normalizeModelRole(role string) string {
+	if normalizeConversationRole(role) == "user" {
+		return "user"
+	}
+	return "assistant"
+}
+
+func toString(value interface{}) string {
+	if value == nil {
+		return ""
+	}
+	return fmt.Sprintf("%v", value)
 }

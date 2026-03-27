@@ -232,6 +232,7 @@ func handleTopArtists(c *gin.Context) {
 		limit = 50
 	}
 	timeRange := validTimeRange(c.DefaultQuery("time_range", "medium_term"))
+	forceFresh := c.Query("fresh") == "true"
 
 	spotifyClient, _, err := GetAuthorizedClient(userID)
 	if err != nil {
@@ -249,6 +250,10 @@ func handleTopArtists(c *gin.Context) {
 		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to load Spotify connection"})
 		return
+	}
+
+	if forceFresh {
+		spotifyClient.InvalidateTopArtistCaches(timeRange, limit, 50)
 	}
 
 	response, err := spotifyClient.GetTopArtistsRaw(timeRange, limit)
