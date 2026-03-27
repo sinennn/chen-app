@@ -538,9 +538,9 @@ export default function MessagesScreen() {
           </Pressable>
 
           <View style={{ alignItems: 'center' }}>
-            <Text style={{ color: Colors.textMuted, fontSize: 11, fontWeight: '700', letterSpacing: 2.2, textTransform: 'uppercase' }}>
+            {/* <Text style={{ color: Colors.textMuted, fontSize: 11, fontWeight: '700', letterSpacing: 2.2, textTransform: 'uppercase' }}>
               Chen Chat
-            </Text>
+            </Text> */}
             <Text style={{ color: Colors.textPrimary, fontSize: 18, fontWeight: '800', marginTop: 5 }}>
               {headerUsername}
             </Text>

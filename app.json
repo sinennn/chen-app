@@ -12,7 +12,10 @@
       "bundleIdentifier": "com.quinnn.chen",
       "usesAppleSignIn": true,
       "googleServicesFile": "./GoogleService-Info.plist",
-      "appleTeamId": "ZCVDURU2BZ"
+      "appleTeamId": "ZCVDURU2BZ",
+      "infoPlist": {
+        "NSMicrophoneUsageDescription": "Chen uses your microphone so you can record and send voice messages."
+      }
     },
     "android": {
       "adaptiveIcon": {
