@@ -316,8 +316,10 @@ function SpotifyPreviewModal({
 function FeedCard({
   item,
   index,
+  currentUserId,
   engagement,
   onCommentPress,
+  onMessagePress,
   onToggleReaction,
   onAvatarPress,
   onOpenSpotifyPress,
@@ -325,8 +327,10 @@ function FeedCard({
 }: {
   item: ActivityItem;
   index: number;
+  currentUserId?: string;
   engagement?: FeedEngagement;
   onCommentPress: (item: ActivityItem) => void;
+  onMessagePress: (item: ActivityItem) => void;
   onToggleReaction: (activityId: string, reactionType: ReactionType) => void;
   onAvatarPress: (item: ActivityItem) => void;
   onOpenSpotifyPress: (item: ActivityItem) => void;
@@ -425,6 +429,7 @@ function FeedCard({
   const isLive = item.is_playing && getDiffMins(activityTimestamp) < 1;
   const hasPreview = !!getSpotifyTrackID(item);
   const hasAlbumArt = !!item.album_art_url?.trim();
+  const canReplyInDM = !!item.user_id && item.user_id !== currentUserId;
 
   return (
     <Animated.View
@@ -663,18 +668,42 @@ function FeedCard({
               </Pressable>
             </View>
 
-            <Pressable onPress={() => onCommentPress(item)}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                <IconSymbol
-                  name="bubble.right"
-                  size={20}
-                  color="rgba(255,255,255,0.6)"
-                />
-                <Text style={{ color: 'rgba(255,255,255,0.6)', fontSize: 12, fontWeight: '600' }}>
-                  {commentCount}
-                </Text>
-              </View>
-            </Pressable>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+              {canReplyInDM ? (
+                <Pressable
+                  onPress={() => onMessagePress(item)}
+                  style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    gap: 6,
+                    paddingHorizontal: 10,
+                    paddingVertical: 7,
+                    borderRadius: 999,
+                    backgroundColor: 'rgba(232,100,10,0.12)',
+                    borderWidth: 1,
+                    borderColor: 'rgba(232,100,10,0.22)',
+                  }}
+                >
+                  <IconSymbol name="paperplane.fill" size={14} color={Colors.orange} />
+                  <Text style={{ color: Colors.orange, fontSize: 11, fontWeight: '800' }}>
+                    Reply in DM
+                  </Text>
+                </Pressable>
+              ) : null}
+
+              <Pressable onPress={() => onCommentPress(item)}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <IconSymbol
+                    name="bubble.right"
+                    size={20}
+                    color="rgba(255,255,255,0.6)"
+                  />
+                  <Text style={{ color: 'rgba(255,255,255,0.6)', fontSize: 12, fontWeight: '600' }}>
+                    {commentCount}
+                  </Text>
+                </View>
+              </Pressable>
+            </View>
           </View>
 
           {/* FLOATING HEART */}
@@ -1151,6 +1180,32 @@ export default function FeedScreen() {
     setCommentModalVisible(true);
   };
 
+  const handleMessagePress = (item: ActivityItem) => {
+    if (!item.user_id) {
+      return;
+    }
+
+    if (item.user_id === user?.id) {
+      router.push('/(tabs)/profile');
+      return;
+    }
+
+    router.push({
+      pathname: '/messages/[friendId]',
+      params: {
+        friendId: item.user_id,
+        username: item.username,
+        trackReplyActivityId: item.id,
+        trackReplyTrackId: item.track_id || '',
+        trackReplyTrackName: item.track_name,
+        trackReplyArtistName: item.artist_name,
+        trackReplyAlbumName: item.album_name || '',
+        trackReplyAlbumArtUrl: item.album_art_url || '',
+        trackReplySpotifyUrl: item.spotify_url || '',
+      },
+    });
+  };
+
   const handleCloseCommentModal = () => {
     setCommentModalVisible(false);
     setSelectedActivity(null);
@@ -1374,8 +1429,10 @@ export default function FeedScreen() {
                   key={`${item.id}-${index}`}
                   item={item}
                   index={index}
+                  currentUserId={user?.id}
                   engagement={engagementByActivity[item.id]}
                   onCommentPress={handleCommentPress}
+                  onMessagePress={handleMessagePress}
                   onToggleReaction={handleToggleReaction}
                   onAvatarPress={handleAvatarPress}
                   onOpenSpotifyPress={handleOpenSpotifyPress}

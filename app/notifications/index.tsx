@@ -29,6 +29,22 @@ function formatRelativeTime(timestamp?: string) {
   return `${Math.floor(diffHours / 24)}d ago`;
 }
 
+function getThreadPreview(thread: MessageThread) {
+  if (!thread.lastMessage) {
+    return 'Open thread';
+  }
+
+  if (thread.lastMessage.message_type === 'voice') {
+    return 'Voice note';
+  }
+
+  if (thread.lastMessage.message_type === 'track_reply' && thread.lastMessage.track_metadata?.track_name) {
+    return `Replied to ${thread.lastMessage.track_metadata.track_name}`;
+  }
+
+  return thread.lastMessage.content || 'Open thread';
+}
+
 export default function NotificationsScreen() {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
@@ -195,7 +211,7 @@ export default function NotificationsScreen() {
               <ActivityIndicator color={Colors.orange} size="small" />
             ) : (
               <Text style={{ color: unreadCount > 0 ? Colors.orange : Colors.textMuted, fontSize: 12, fontWeight: '700' }}>
-                Read all
+                i've read all
               </Text>
             )}
           </Pressable>
@@ -312,7 +328,7 @@ export default function NotificationsScreen() {
                       {thread.friend.username}
                     </Text>
                     <Text numberOfLines={1} style={{ color: Colors.textSecondary, fontSize: 12, marginTop: 3 }}>
-                      {thread.lastMessage?.content || 'Open thread'}
+                      {getThreadPreview(thread)}
                     </Text>
                   </View>
                   <View style={{ alignItems: 'flex-end' }}>

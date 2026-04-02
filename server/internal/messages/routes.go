@@ -21,12 +21,23 @@ type SendMessageRequest struct {
 	MessageType     string `json:"message_type"`
 	AudioURL        string `json:"audio_url"`
 	AudioDurationMs int    `json:"audio_duration_ms"`
+	TrackMetadata   *TrackMetadata `json:"track_metadata"`
 }
 
 type MessageFriend struct {
 	ID       string `json:"id"`
 	Username string `json:"username"`
 	AvatarID string `json:"avatar_id"`
+}
+
+type TrackMetadata struct {
+	ActivityID  string `json:"activity_id,omitempty"`
+	TrackID     string `json:"track_id,omitempty"`
+	TrackName   string `json:"track_name"`
+	ArtistName  string `json:"artist_name"`
+	AlbumName   string `json:"album_name,omitempty"`
+	AlbumArtURL string `json:"album_art_url,omitempty"`
+	SpotifyURL  string `json:"spotify_url,omitempty"`
 }
 
 type MessageItem struct {
@@ -37,6 +48,7 @@ type MessageItem struct {
 	MessageType     string `json:"message_type"`
 	AudioURL        string `json:"audio_url,omitempty"`
 	AudioDurationMs int    `json:"audio_duration_ms,omitempty"`
+	TrackMetadata   *TrackMetadata `json:"track_metadata,omitempty"`
 	CreatedAt       string `json:"created_at"`
 	ReadAt          string `json:"read_at,omitempty"`
 	IsMine          bool   `json:"is_mine"`
@@ -74,13 +86,13 @@ func listThreads(c *gin.Context) {
 	}
 
 	data, _, err := client.From("direct_messages").
-		Select("id,sender_id,recipient_id,content,message_type,audio_url,audio_duration_ms,created_at,read_at", "", false).
+		Select("id,sender_id,recipient_id,content,message_type,audio_url,audio_duration_ms,track_metadata,created_at,read_at", "", false).
 		Or(fmt.Sprintf("sender_id.eq.%s,recipient_id.eq.%s", userID, userID), "").
 		Order("created_at", &postgrest.OrderOpts{Ascending: false}).
 		Limit(200, "").
 		Execute()
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to load message threads"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": describeMessageDBError(err, "Failed to load message threads")})
 		return
 	}
 
@@ -118,6 +130,7 @@ func listThreads(c *gin.Context) {
 			MessageType:     normalizeMessageType(toString(row["message_type"])),
 			AudioURL:        toString(row["audio_url"]),
 			AudioDurationMs: toInt(row["audio_duration_ms"]),
+			TrackMetadata:   parseTrackMetadata(row["track_metadata"]),
 			CreatedAt:       toString(row["created_at"]),
 			ReadAt:          toString(row["read_at"]),
 			IsMine:          senderID == userID,
@@ -177,7 +190,7 @@ func getThread(c *gin.Context) {
 
 	messages, err := loadThreadMessages(userID, friendID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to load conversation"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": describeMessageDBError(err, "Failed to load conversation")})
 		return
 	}
 
@@ -215,6 +228,7 @@ func sendMessage(c *gin.Context) {
 	content := strings.TrimSpace(req.Content)
 	audioURL := strings.TrimSpace(req.AudioURL)
 	audioDurationMs := req.AudioDurationMs
+	trackMetadata := normalizeTrackMetadata(req.TrackMetadata)
 
 	if messageType == "voice" {
 		if audioURL == "" {
@@ -223,6 +237,15 @@ func sendMessage(c *gin.Context) {
 		}
 		if content == "" {
 			content = "Voice note"
+		}
+	} else if messageType == "track_reply" {
+		if trackMetadata == nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Track replies require track metadata"})
+			return
+		}
+		if content == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Track replies require a message"})
+			return
 		}
 	} else if content == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Message content is required"})
@@ -243,10 +266,11 @@ func sendMessage(c *gin.Context) {
 		"message_type":      messageType,
 		"audio_url":         audioURL,
 		"audio_duration_ms": audioDurationMs,
+		"track_metadata":    trackMetadata,
 		"created_at":        now,
 	}, false, "", "", "").Execute()
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to send message"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": describeMessageDBError(err, "Failed to send message")})
 		return
 	}
 
@@ -257,6 +281,7 @@ func sendMessage(c *gin.Context) {
 		MessageType:     messageType,
 		AudioURL:        audioURL,
 		AudioDurationMs: audioDurationMs,
+		TrackMetadata:   trackMetadata,
 		CreatedAt:       now,
 		IsMine:          true,
 	}
@@ -275,7 +300,13 @@ func sendMessage(c *gin.Context) {
 		preview := content
 		if messageType == "voice" {
 			preview = "Sent you a voice note"
-		} else if len(preview) > 88 {
+		} else if messageType == "track_reply" {
+			trackName := trackNameFromMetadata(trackMetadata)
+			if trackName != "" {
+				preview = fmt.Sprintf("Replied to %s: %s", trackName, content)
+			}
+		}
+		if len(preview) > 88 {
 			preview = preview[:85] + "..."
 		}
 		_ = notifications.CreateNotification(
@@ -286,9 +317,10 @@ func sendMessage(c *gin.Context) {
 			preview,
 			message.ID,
 			map[string]any{
-				"friendId":   userID,
-				"messageId":  message.ID,
+				"friendId":    userID,
+				"messageId":   message.ID,
 				"messageType": messageType,
+				"trackName":   trackNameFromMetadata(trackMetadata),
 			},
 		)
 	}
@@ -346,7 +378,7 @@ func loadThreadMessages(userID, friendID string) ([]MessageItem, error) {
 	}
 
 	data, _, err := client.From("direct_messages").
-		Select("id,sender_id,recipient_id,content,message_type,audio_url,audio_duration_ms,created_at,read_at", "", false).
+		Select("id,sender_id,recipient_id,content,message_type,audio_url,audio_duration_ms,track_metadata,created_at,read_at", "", false).
 		Or(
 			fmt.Sprintf(
 				"and(sender_id.eq.%s,recipient_id.eq.%s),and(sender_id.eq.%s,recipient_id.eq.%s)",
@@ -380,6 +412,7 @@ func loadThreadMessages(userID, friendID string) ([]MessageItem, error) {
 			MessageType:     normalizeMessageType(toString(row["message_type"])),
 			AudioURL:        toString(row["audio_url"]),
 			AudioDurationMs: toInt(row["audio_duration_ms"]),
+			TrackMetadata:   parseTrackMetadata(row["track_metadata"]),
 			CreatedAt:       toString(row["created_at"]),
 			ReadAt:          toString(row["read_at"]),
 			IsMine:          senderID == userID,
@@ -487,7 +520,70 @@ func normalizeMessageType(value string) string {
 	switch strings.ToLower(strings.TrimSpace(value)) {
 	case "voice":
 		return "voice"
+	case "track_reply":
+		return "track_reply"
 	default:
 		return "text"
 	}
+}
+
+func normalizeTrackMetadata(track *TrackMetadata) *TrackMetadata {
+	if track == nil {
+		return nil
+	}
+
+	normalized := &TrackMetadata{
+		ActivityID:  strings.TrimSpace(track.ActivityID),
+		TrackID:     strings.TrimSpace(track.TrackID),
+		TrackName:   strings.TrimSpace(track.TrackName),
+		ArtistName:  strings.TrimSpace(track.ArtistName),
+		AlbumName:   strings.TrimSpace(track.AlbumName),
+		AlbumArtURL: strings.TrimSpace(track.AlbumArtURL),
+		SpotifyURL:  strings.TrimSpace(track.SpotifyURL),
+	}
+
+	if normalized.TrackName == "" || normalized.ArtistName == "" {
+		return nil
+	}
+
+	return normalized
+}
+
+func parseTrackMetadata(value any) *TrackMetadata {
+	if value == nil {
+		return nil
+	}
+
+	bytes, err := json.Marshal(value)
+	if err != nil {
+		return nil
+	}
+
+	var track TrackMetadata
+	if err := json.Unmarshal(bytes, &track); err != nil {
+		return nil
+	}
+
+	return normalizeTrackMetadata(&track)
+}
+
+func trackNameFromMetadata(track *TrackMetadata) string {
+	if track == nil {
+		return ""
+	}
+
+	return strings.TrimSpace(track.TrackName)
+}
+
+func describeMessageDBError(err error, fallback string) string {
+	if err == nil {
+		return fallback
+	}
+
+	message := strings.ToLower(strings.TrimSpace(err.Error()))
+	if strings.Contains(message, "track_metadata") && strings.Contains(message, "column") {
+		return "Message DB is missing the track reply migration. Run server/migrations/add_track_replies_to_direct_messages.sql"
+	}
+
+	return fallback
 }

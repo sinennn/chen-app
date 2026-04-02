@@ -569,8 +569,9 @@ export default function FriendsScreen() {
         api.friends.list(),
         api.friends.discover(),
       ]);
+      const currentUserId = user.id;
       const acceptedFromDiscover = (discoverData || [])
-        .filter((entry) => entry.relationship_status === 'friends')
+        .filter((entry) => entry.id !== currentUserId && entry.relationship_status === 'friends')
         .map((entry) => ({
           id: entry.id,
           username: entry.username,
@@ -587,7 +588,14 @@ export default function FriendsScreen() {
       }
       const friendIds = new Set(mergedFriends.map((friend) => friend.id));
       setFriends(mergedFriends);
-      setDiscoverUsers((discoverData || []).filter((entry) => entry.relationship_status !== 'friends' && !friendIds.has(entry.id)));
+      setDiscoverUsers(
+        (discoverData || []).filter(
+          (entry) =>
+            entry.id !== currentUserId &&
+            entry.relationship_status !== 'friends' &&
+            !friendIds.has(entry.id)
+        )
+      );
     } catch {
       setError('Failed to load friends');
     } finally {

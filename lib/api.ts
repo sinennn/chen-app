@@ -154,14 +154,25 @@ export type MessageFriend = {
   avatar_id: string;
 };
 
+export type DirectMessageTrack = {
+  activity_id?: string;
+  track_id?: string;
+  track_name: string;
+  artist_name: string;
+  album_name?: string;
+  album_art_url?: string;
+  spotify_url?: string;
+};
+
 export type DirectMessage = {
   id: string;
   sender_id: string;
   recipient_id: string;
   content: string;
-  message_type: 'text' | 'voice';
+  message_type: 'text' | 'voice' | 'track_reply';
   audio_url?: string;
   audio_duration_ms?: number;
+  track_metadata?: DirectMessageTrack;
   created_at: string;
   read_at?: string;
   is_mine: boolean;
@@ -180,9 +191,10 @@ export type MessageThreadResponse = {
 
 export type SendDirectMessagePayload = {
   content?: string;
-  message_type?: 'text' | 'voice';
+  message_type?: 'text' | 'voice' | 'track_reply';
   audio_url?: string;
   audio_duration_ms?: number;
+  track_metadata?: DirectMessageTrack;
 };
 
 export type NotificationActor = {

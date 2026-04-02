@@ -2,13 +2,15 @@
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { Colors } from '@/constants/theme';
 import { useAuth } from '@/contexts/AuthContext';
-import { DirectMessage, api } from '@/lib/api';
+import { DirectMessage, DirectMessageTrack, api } from '@/lib/api';
 import { supabase } from '@/lib/supabase';
 import {
-  createAudioPlayer,
   RecordingPresets,
   requestRecordingPermissionsAsync,
-  setAudioModeAsync,
+  setAudioModeAsync as setRecordingAudioModeAsync,
+  setIsAudioActiveAsync,
+  useAudioPlayer,
+  useAudioPlayerStatus,
   useAudioRecorder,
   useAudioRecorderState,
 } from 'expo-audio';
@@ -87,11 +89,57 @@ function formatDuration(durationMs?: number) {
   return `${minutes}:${String(seconds).padStart(2, '0')}`;
 }
 
+function buildTrackReplyPreviewText(track?: DirectMessageTrack | null) {
+  if (!track?.track_name) {
+    return 'Song reply';
+  }
+
+  return `Replying to ${track.track_name}`;
+}
+
+function extractVoiceNoteObjectPath(value?: string) {
+  if (!value) {
+    return null;
+  }
+
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  if (
+    trimmed.startsWith('file://') ||
+    trimmed.startsWith('content://') ||
+    trimmed.startsWith('blob:') ||
+    trimmed.startsWith('data:')
+  ) {
+    return null;
+  }
+
+  if (!trimmed.startsWith('http://') && !trimmed.startsWith('https://')) {
+    return trimmed;
+  }
+
+  const publicMarker = '/storage/v1/object/public/voice-notes/';
+  const signMarker = '/storage/v1/object/sign/voice-notes/';
+  const authenticatedMarker = '/storage/v1/object/authenticated/voice-notes/';
+  const marker = [publicMarker, signMarker, authenticatedMarker].find((candidate) =>
+    trimmed.includes(candidate)
+  );
+
+  if (!marker) {
+    return null;
+  }
+
+  const objectPath = trimmed.split(marker)[1]?.split('?')[0];
+  return objectPath ? decodeURIComponent(objectPath) : null;
+}
+
 function VoiceWave({ progress = 0, active = false }: { progress?: number; active?: boolean }) {
   const heights = [10, 16, 12, 18, 9, 15, 11, 17, 13, 8, 14, 10];
 
   return (
-    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3, flex: 1 }}>
+    <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 3, flex: 1, minHeight: 20 }}>
       {heights.map((height, index) => {
         const threshold = (index + 1) / heights.length;
         const filled = progress >= threshold;
@@ -100,9 +148,9 @@ function VoiceWave({ progress = 0, active = false }: { progress?: number; active
           <View
             key={`${height}-${index}`}
             style={{
-              width: 4,
+              width: 3,
               height,
-              borderRadius: 3,
+              borderRadius: 999,
               backgroundColor: filled
                 ? Colors.orange
                 : active
@@ -119,7 +167,27 @@ function VoiceWave({ progress = 0, active = false }: { progress?: number; active
 export default function MessagesScreen() {
   const router = useRouter();
   const { user } = useAuth();
-  const { friendId, username } = useLocalSearchParams<{ friendId: string; username?: string }>();
+  const {
+    friendId,
+    username,
+    trackReplyActivityId,
+    trackReplyTrackId,
+    trackReplyTrackName,
+    trackReplyArtistName,
+    trackReplyAlbumName,
+    trackReplyAlbumArtUrl,
+    trackReplySpotifyUrl,
+  } = useLocalSearchParams<{
+    friendId: string;
+    username?: string;
+    trackReplyActivityId?: string;
+    trackReplyTrackId?: string;
+    trackReplyTrackName?: string;
+    trackReplyArtistName?: string;
+    trackReplyAlbumName?: string;
+    trackReplyAlbumArtUrl?: string;
+    trackReplySpotifyUrl?: string;
+  }>();
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [messages, setMessages] = useState<DirectMessage[]>([]);
@@ -133,10 +201,12 @@ export default function MessagesScreen() {
       : null
   );
   const [draft, setDraft] = useState('');
+  const [pendingTrackReply, setPendingTrackReply] = useState<DirectMessageTrack | null>(null);
   const [isRecording, setIsRecording] = useState(false);
   const [recordingDurationMs, setRecordingDurationMs] = useState(0);
   const [recordedVoiceNote, setRecordedVoiceNote] = useState<{ uri: string; durationMs: number } | null>(null);
   const [uploadingVoice, setUploadingVoice] = useState(false);
+  const [playbackSource, setPlaybackSource] = useState<string | null>(null);
   const [playbackState, setPlaybackState] = useState<{
     sourceId: string | null;
     isPlaying: boolean;
@@ -150,18 +220,35 @@ export default function MessagesScreen() {
   });
 
   const scrollViewRef = useRef<ScrollView | null>(null);
-  const playerRef = useRef<any>(null);
   const activePlaybackSourceIdRef = useRef<string | null>(null);
+  const pendingPlaybackSourceIdRef = useRef<string | null>(null);
   const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
   const recorderState = useAudioRecorderState(recorder, 100);
+  const player = useAudioPlayer(playbackSource, {
+    updateInterval: 100,
+    downloadFirst: true,
+    keepAudioSessionActive: true,
+  });
+  const playerStatus = useAudioPlayerStatus(player);
+
+  const ensurePlaybackAudioMode = async () => {
+    await setRecordingAudioModeAsync({
+      allowsRecording: false,
+      playsInSilentMode: true,
+      interruptionMode: 'doNotMix',
+      shouldPlayInBackground: false,
+      shouldRouteThroughEarpiece: false,
+    });
+    await setIsAudioActiveAsync(true);
+  };
 
   const stopPlayback = async () => {
-    if (playerRef.current) {
-      try {
-        playerRef.current.pause();
-      } catch {}
-    }
+    try {
+      player.pause();
+    } catch {}
     activePlaybackSourceIdRef.current = null;
+    pendingPlaybackSourceIdRef.current = null;
+    setPlaybackSource(null);
 
     setPlaybackState({
       sourceId: null,
@@ -195,6 +282,34 @@ export default function MessagesScreen() {
   }, [friendId]);
 
   useEffect(() => {
+    const trackName = trackReplyTrackName?.trim();
+    const artistName = trackReplyArtistName?.trim();
+
+    if (!trackName || !artistName) {
+      setPendingTrackReply(null);
+      return;
+    }
+
+    setPendingTrackReply({
+      activity_id: trackReplyActivityId?.trim() || undefined,
+      track_id: trackReplyTrackId?.trim() || undefined,
+      track_name: trackName,
+      artist_name: artistName,
+      album_name: trackReplyAlbumName?.trim() || undefined,
+      album_art_url: trackReplyAlbumArtUrl?.trim() || undefined,
+      spotify_url: trackReplySpotifyUrl?.trim() || undefined,
+    });
+  }, [
+    trackReplyActivityId,
+    trackReplyAlbumArtUrl,
+    trackReplyAlbumName,
+    trackReplyArtistName,
+    trackReplySpotifyUrl,
+    trackReplyTrackId,
+    trackReplyTrackName,
+  ]);
+
+  useEffect(() => {
     const timeout = setTimeout(() => {
       scrollViewRef.current?.scrollToEnd({ animated: true });
     }, 60);
@@ -205,52 +320,58 @@ export default function MessagesScreen() {
   useEffect(() => {
     return () => {
       stopPlayback();
-      if (playerRef.current) {
-        try {
-          playerRef.current.remove();
-        } catch {}
-        playerRef.current = null;
-      }
     };
   }, []);
 
   useEffect(() => {
-    const player = createAudioPlayer(null, {
-      updateInterval: 100,
-      keepAudioSessionActive: true,
+    if (
+      pendingPlaybackSourceIdRef.current &&
+      activePlaybackSourceIdRef.current === pendingPlaybackSourceIdRef.current &&
+      playbackSource &&
+      playerStatus.isLoaded
+    ) {
+      pendingPlaybackSourceIdRef.current = null;
+      try {
+        player.muted = false;
+        player.volume = 1;
+        player.play();
+      } catch {}
+    }
+  }, [player, playbackSource, playerStatus.isLoaded]);
+
+  useEffect(() => {
+    if (!activePlaybackSourceIdRef.current) {
+      return;
+    }
+
+    const durationMs = Math.max(0, Math.round((playerStatus.duration || 0) * 1000));
+    const positionMs = Math.max(0, Math.round((playerStatus.currentTime || 0) * 1000));
+
+    setPlaybackState({
+      sourceId: activePlaybackSourceIdRef.current,
+      isPlaying: playerStatus.playing,
+      positionMs,
+      durationMs,
     });
 
-    const subscription = player.addListener('playbackStatusUpdate', (status) => {
+    if (
+      playerStatus.didJustFinish ||
+      (!playerStatus.playing && playerStatus.currentTime >= playerStatus.duration && playerStatus.duration > 0)
+    ) {
       setPlaybackState({
         sourceId: activePlaybackSourceIdRef.current,
-        isPlaying: status.playing,
-        positionMs: Math.max(0, Math.round((status.currentTime || 0) * 1000)),
-        durationMs: Math.max(0, Math.round((status.duration || 0) * 1000)),
+        isPlaying: false,
+        positionMs: 0,
+        durationMs,
       });
-
-      if (status.didJustFinish || (!status.playing && status.currentTime >= status.duration && status.duration > 0)) {
-        activePlaybackSourceIdRef.current = null;
-        setPlaybackState({
-          sourceId: null,
-          isPlaying: false,
-          positionMs: 0,
-          durationMs: Math.max(0, Math.round((status.duration || 0) * 1000)),
-        });
-      }
-    });
-
-    playerRef.current = player;
-
-    return () => {
-      subscription.remove();
-      try {
-        player.remove();
-      } catch {}
-      if (playerRef.current === player) {
-        playerRef.current = null;
-      }
-    };
-  }, []);
+    }
+  }, [
+    playerStatus.currentTime,
+    playerStatus.didJustFinish,
+    playerStatus.duration,
+    playerStatus.isLoaded,
+    playerStatus.playing,
+  ]);
 
   const handleSend = async () => {
     const content = draft.trim();
@@ -258,22 +379,38 @@ export default function MessagesScreen() {
       return;
     }
 
+    const isTrackReplyMessage = !!pendingTrackReply;
+    const pendingTrack = pendingTrackReply;
+
     const optimisticMessage: DirectMessage = {
       id: `temp-${Date.now()}`,
       sender_id: user?.id || 'me',
       recipient_id: friendId,
       content,
-      message_type: 'text',
+      message_type: isTrackReplyMessage ? 'track_reply' : 'text',
+      track_metadata: pendingTrack || undefined,
       created_at: new Date().toISOString(),
       is_mine: true,
     };
 
     setDraft('');
+    if (isTrackReplyMessage) {
+      setPendingTrackReply(null);
+    }
     setSending(true);
     setMessages((current) => [...current, optimisticMessage]);
 
     try {
-      const created = await api.messages.send(friendId, content);
+      const created = await api.messages.send(
+        friendId,
+        isTrackReplyMessage && pendingTrack
+          ? {
+              content,
+              message_type: 'track_reply',
+              track_metadata: pendingTrack,
+            }
+          : content
+      );
       setMessages((current) =>
         current.map((message) => (message.id === optimisticMessage.id ? created : message))
       );
@@ -281,6 +418,9 @@ export default function MessagesScreen() {
       setMessages((current) => current.filter((message) => message.id !== optimisticMessage.id));
       Alert.alert('Message failed', error instanceof Error ? error.message : 'Please try again.');
       setDraft(content);
+      if (isTrackReplyMessage && pendingTrack) {
+        setPendingTrackReply(pendingTrack);
+      }
     } finally {
       setSending(false);
     }
@@ -307,7 +447,7 @@ export default function MessagesScreen() {
         return;
       }
 
-      await setAudioModeAsync({
+      await setRecordingAudioModeAsync({
         allowsRecording: true,
         playsInSilentMode: true,
       });
@@ -320,7 +460,7 @@ export default function MessagesScreen() {
       Alert.alert('Recording failed', error instanceof Error ? error.message : 'Please try again.');
       setIsRecording(false);
       try {
-        await setAudioModeAsync({ allowsRecording: false, playsInSilentMode: true });
+        await setRecordingAudioModeAsync({ allowsRecording: false, playsInSilentMode: true });
       } catch {}
     }
   };
@@ -333,7 +473,8 @@ export default function MessagesScreen() {
     try {
       await recorder.stop();
       setIsRecording(false);
-      await setAudioModeAsync({ allowsRecording: false, playsInSilentMode: true });
+      await setRecordingAudioModeAsync({ allowsRecording: false, playsInSilentMode: true });
+      await ensurePlaybackAudioMode();
 
       const uri = recorder.uri || recorderState.url;
       if (!uri) {
@@ -379,8 +520,30 @@ export default function MessagesScreen() {
       throw error;
     }
 
-    const { data } = supabase.storage.from('voice-notes').getPublicUrl(filePath);
-    return data.publicUrl;
+    return filePath;
+  };
+
+  const resolvePlayableVoiceURI = async (uri: string) => {
+    if (
+      uri.startsWith('file://') ||
+      uri.startsWith('content://') ||
+      uri.startsWith('blob:') ||
+      uri.startsWith('data:')
+    ) {
+      return uri;
+    }
+
+    const objectPath = extractVoiceNoteObjectPath(uri);
+    if (!objectPath) {
+      return uri;
+    }
+
+    const { data, error } = await supabase.storage.from('voice-notes').createSignedUrl(objectPath, 60 * 60);
+    if (!error && data?.signedUrl) {
+      return data.signedUrl;
+    }
+
+    return uri;
   };
 
   const sendRecordedVoice = async () => {
@@ -432,29 +595,40 @@ export default function MessagesScreen() {
     }
 
     try {
-      await setAudioModeAsync({
-        allowsRecording: false,
-        playsInSilentMode: true,
-      });
+      const playableURI = await resolvePlayableVoiceURI(uri);
+      await ensurePlaybackAudioMode();
 
-      if (playbackState.sourceId === sourceId && playerRef.current) {
-        if (!playerRef.current.isLoaded) {
+      if (playbackState.sourceId === sourceId) {
+        if (!playerStatus.isLoaded) {
           await stopPlayback();
           return;
         }
 
-        if (playerRef.current.playing) {
-          playerRef.current.pause();
+        if (playerStatus.playing) {
+          player.pause();
         } else {
-          playerRef.current.play();
+          player.muted = false;
+          player.volume = 1;
+          if (playerStatus.duration > 0 && playerStatus.currentTime >= playerStatus.duration) {
+            await player.seekTo(0);
+            player.play();
+          } else {
+            player.play();
+          }
         }
         return;
       }
 
       await stopPlayback();
       activePlaybackSourceIdRef.current = sourceId;
-      playerRef.current?.replace(uri);
-      playerRef.current?.play();
+      pendingPlaybackSourceIdRef.current = sourceId;
+      setPlaybackSource(playableURI);
+      setPlaybackState({
+        sourceId,
+        isPlaying: false,
+        positionMs: 0,
+        durationMs: 0,
+      });
     } catch (error) {
       Alert.alert('Playback failed', error instanceof Error ? error.message : 'Please try again.');
       await stopPlayback();
@@ -715,6 +889,8 @@ export default function MessagesScreen() {
                     formatDayPill(previous.created_at) !== formatDayPill(message.created_at);
                   const showAvatar = !isMine && (!previous || previousIsMine !== isMine);
                   const isVoice = message.message_type === 'voice' && !!message.audio_url;
+                  const isTrackReply =
+                    message.message_type === 'track_reply' && !!message.track_metadata?.track_name;
                   const isPlayingThisVoice = playbackState.sourceId === message.id;
                   const currentDurationMs = isPlayingThisVoice
                     ? playbackState.durationMs || message.audio_duration_ms || 0
@@ -722,6 +898,10 @@ export default function MessagesScreen() {
                   const currentProgress = isPlayingThisVoice && currentDurationMs > 0
                     ? Math.min(1, playbackState.positionMs / currentDurationMs)
                     : 0;
+                  const voiceDisplayMs =
+                    isPlayingThisVoice && playbackState.positionMs > 0
+                      ? playbackState.positionMs
+                      : currentDurationMs;
 
                   return (
                     <View key={message.id} style={{ marginTop: showDayPill ? 18 : 8 }}>
@@ -770,25 +950,31 @@ export default function MessagesScreen() {
                           {isVoice ? (
                             <View
                               style={{
-                                borderRadius: 24,
-                                paddingHorizontal: 14,
-                                paddingVertical: 12,
+                                minWidth: 220,
+                                borderRadius: 26,
+                                padding: 10,
                                 backgroundColor: isMine ? 'rgba(232,100,10,0.16)' : 'rgba(255,255,255,0.06)',
                                 borderWidth: 1,
-                                borderColor: isMine ? 'rgba(232,100,10,0.26)' : 'rgba(255,255,255,0.08)',
+                                borderColor: isMine ? 'rgba(232,100,10,0.28)' : 'rgba(255,255,255,0.08)',
+                                shadowColor: isMine ? Colors.orange : '#000',
+                                shadowOpacity: isMine ? 0.18 : 0.1,
+                                shadowRadius: 14,
+                                shadowOffset: { width: 0, height: 8 },
                               }}
                             >
                               <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                                 <Pressable
                                   onPress={() => toggleVoicePlayback(message.id, message.audio_url!)}
                                   style={{
-                                    width: 38,
-                                    height: 38,
-                                    borderRadius: 19,
+                                    width: 46,
+                                    height: 46,
+                                    borderRadius: 23,
                                     backgroundColor: isMine ? Colors.orange : 'rgba(255,255,255,0.1)',
                                     alignItems: 'center',
                                     justifyContent: 'center',
                                     marginRight: 12,
+                                    borderWidth: 1,
+                                    borderColor: isMine ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.08)',
                                   }}
                                 >
                                   <IconSymbol
@@ -797,28 +983,235 @@ export default function MessagesScreen() {
                                         ? 'pause.fill'
                                         : 'play.fill'
                                     }
-                                    size={18}
+                                    size={20}
                                     color={isMine ? Colors.white : Colors.textPrimary}
                                   />
                                 </Pressable>
 
                                 <View style={{ flex: 1 }}>
-                                  <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}>
-                                    <VoiceWave progress={currentProgress} active={isPlayingThisVoice} />
-                                  </View>
-                                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                                    <Text style={{ color: isMine ? Colors.textPrimary : Colors.textSecondary, fontSize: 12, fontWeight: '700' }}>
+                                  <View
+                                    style={{
+                                      flexDirection: 'row',
+                                      justifyContent: 'space-between',
+                                      alignItems: 'center',
+                                      marginBottom: 10,
+                                    }}
+                                  >
+                                    <Text
+                                      style={{
+                                        color: Colors.textPrimary,
+                                        fontSize: 13,
+                                        fontWeight: '800',
+                                        letterSpacing: 0.2,
+                                      }}
+                                    >
                                       Voice note
                                     </Text>
-                                    <Text style={{ color: isMine ? Colors.textSecondary : Colors.textMuted, fontSize: 12 }}>
-                                      {formatDuration(
-                                        isPlayingThisVoice && playbackState.positionMs > 0
-                                          ? playbackState.positionMs
-                                          : currentDurationMs
-                                      )}
+                                    <View
+                                      style={{
+                                        borderRadius: 999,
+                                        paddingHorizontal: 9,
+                                        paddingVertical: 4,
+                                        backgroundColor: isMine ? 'rgba(255,255,255,0.1)' : 'rgba(255,255,255,0.05)',
+                                        borderWidth: 1,
+                                        borderColor: isMine ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.06)',
+                                      }}
+                                    >
+                                      <Text
+                                        style={{
+                                          color: isMine ? 'rgba(255,255,255,0.84)' : Colors.textSecondary,
+                                          fontSize: 11,
+                                          fontWeight: '700',
+                                        }}
+                                      >
+                                        {formatDuration(voiceDisplayMs)}
+                                      </Text>
+                                    </View>
+                                  </View>
+                                  <View
+                                    style={{
+                                      borderRadius: 16,
+                                      paddingHorizontal: 12,
+                                      paddingVertical: 10,
+                                      backgroundColor: isMine ? 'rgba(0,0,0,0.12)' : 'rgba(255,255,255,0.04)',
+                                      borderWidth: 1,
+                                      borderColor: isMine ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.05)',
+                                    }}
+                                  >
+                                    <VoiceWave progress={currentProgress} active={isPlayingThisVoice} />
+                                  </View>
+                                  <View
+                                    style={{
+                                      flexDirection: 'row',
+                                      justifyContent: 'space-between',
+                                      alignItems: 'center',
+                                      marginTop: 8,
+                                      paddingHorizontal: 2,
+                                    }}
+                                  >
+                                    <Text
+                                      style={{
+                                        color: isMine ? 'rgba(255,255,255,0.7)' : Colors.textMuted,
+                                        fontSize: 11,
+                                        fontWeight: '600',
+                                      }}
+                                    >
+                                      {isPlayingThisVoice && playbackState.isPlaying ? 'Playing now' : 'Tap to listen'}
+                                    </Text>
+                                    <Text
+                                      style={{
+                                        color: isMine ? 'rgba(255,255,255,0.74)' : Colors.textMuted,
+                                        fontSize: 11,
+                                        fontWeight: '600',
+                                      }}
+                                    >
+                                      {isPlayingThisVoice
+                                        ? playbackState.isPlaying
+                                          ? 'Live'
+                                          : 'Paused'
+                                        : 'Ready'}
                                     </Text>
                                   </View>
                                 </View>
+                              </View>
+                            </View>
+                          ) : isTrackReply ? (
+                            <View>
+                              <View
+                                style={{
+                                  borderRadius: 24,
+                                  padding: 13,
+                                  backgroundColor: 'rgba(255,255,255,0.06)',
+                                  borderWidth: 1,
+                                  borderColor: isMine ? 'rgba(232,100,10,0.22)' : 'rgba(255,255,255,0.08)',
+                                  shadowColor: isMine ? Colors.orange : '#000',
+                                  shadowOpacity: isMine ? 0.16 : 0.1,
+                                  shadowRadius: 14,
+                                  shadowOffset: { width: 0, height: 8 },
+                                }}
+                              >
+                                <Text
+                                  style={{
+                                    color: isMine ? Colors.orange : Colors.textMuted,
+                                    fontSize: 11,
+                                    fontWeight: '800',
+                                    letterSpacing: 0.6,
+                                    textTransform: 'uppercase',
+                                    marginBottom: 10,
+                                  }}
+                                >
+                                  Song reply
+                                </Text>
+
+                                <View>
+                                  {message.track_metadata?.album_art_url ? (
+                                    <Image
+                                      source={{ uri: message.track_metadata.album_art_url }}
+                                      style={{
+                                        width: '100%',
+                                        aspectRatio: 1,
+                                        borderRadius: 22,
+                                        marginBottom: 14,
+                                      }}
+                                      resizeMode="cover"
+                                    />
+                                  ) : (
+                                    <View
+                                      style={{
+                                        width: '100%',
+                                        aspectRatio: 1,
+                                        borderRadius: 22,
+                                        marginBottom: 14,
+                                        backgroundColor: 'rgba(255,255,255,0.08)',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                      }}
+                                    >
+                                      <Text style={{ color: Colors.textPrimary, fontSize: 34, fontWeight: '700' }}>♪</Text>
+                                    </View>
+                                  )}
+
+                                  <Text
+                                    style={{
+                                      color: Colors.textPrimary,
+                                      fontSize: 18,
+                                      lineHeight: 23,
+                                      fontWeight: '900',
+                                    }}
+                                  >
+                                    {message.track_metadata?.track_name}
+                                  </Text>
+                                  <Text
+                                    style={{
+                                      color: Colors.textSecondary,
+                                      fontSize: 14,
+                                      lineHeight: 19,
+                                      marginTop: 6,
+                                      fontWeight: '700',
+                                    }}
+                                  >
+                                    {message.track_metadata?.artist_name}
+                                  </Text>
+                                  {message.track_metadata?.album_name ? (
+                                    <Text
+                                      style={{
+                                        color: Colors.textMuted,
+                                        fontSize: 12,
+                                        lineHeight: 17,
+                                        marginTop: 6,
+                                        fontWeight: '600',
+                                      }}
+                                    >
+                                      {message.track_metadata.album_name}
+                                    </Text>
+                                  ) : null}
+                                </View>
+                              </View>
+
+                              <View
+                                style={{
+                                  marginTop: 8,
+                                  alignSelf: isMine ? 'flex-end' : 'flex-start',
+                                  maxWidth: '92%',
+                                }}
+                              >
+                                {isMine ? (
+                                  <LinearGradient
+                                    colors={[Colors.orange, Colors.orangeDim]}
+                                    start={{ x: 0, y: 0 }}
+                                    end={{ x: 1, y: 1 }}
+                                    style={{
+                                      borderRadius: 22,
+                                      paddingHorizontal: 15,
+                                      paddingVertical: 12,
+                                      borderWidth: 1,
+                                      borderColor: 'rgba(255,255,255,0.1)',
+                                      shadowColor: Colors.orange,
+                                      shadowOpacity: 0.2,
+                                      shadowRadius: 12,
+                                      shadowOffset: { width: 0, height: 6 },
+                                    }}
+                                  >
+                                    <Text style={{ color: Colors.white, fontSize: 14, lineHeight: 20 }}>
+                                      {message.content}
+                                    </Text>
+                                  </LinearGradient>
+                                ) : (
+                                  <View
+                                    style={{
+                                      borderRadius: 22,
+                                      paddingHorizontal: 15,
+                                      paddingVertical: 12,
+                                      backgroundColor: 'rgba(255,255,255,0.06)',
+                                      borderWidth: 1,
+                                      borderColor: 'rgba(255,255,255,0.08)',
+                                    }}
+                                  >
+                                    <Text style={{ color: Colors.textPrimary, fontSize: 14, lineHeight: 20 }}>
+                                      {message.content}
+                                    </Text>
+                                  </View>
+                                )}
                               </View>
                             </View>
                           ) : isMine ? (
@@ -982,6 +1375,73 @@ export default function MessagesScreen() {
                 </View>
               ) : null}
 
+              {pendingTrackReply ? (
+                <View
+                  style={{
+                    marginBottom: 12,
+                    borderRadius: 24,
+                    padding: 14,
+                    backgroundColor: 'rgba(255,255,255,0.05)',
+                    borderWidth: 1,
+                    borderColor: 'rgba(232,100,10,0.16)',
+                  }}
+                >
+                  <View style={{ flexDirection: 'row', alignItems: 'flex-start' }}>
+                    {pendingTrackReply.album_art_url ? (
+                      <Image
+                        source={{ uri: pendingTrackReply.album_art_url }}
+                        style={{ width: 52, height: 52, borderRadius: 16, marginRight: 12 }}
+                      />
+                    ) : (
+                      <View
+                        style={{
+                          width: 52,
+                          height: 52,
+                          borderRadius: 16,
+                          marginRight: 12,
+                          backgroundColor: 'rgba(255,255,255,0.08)',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          borderWidth: 1,
+                          borderColor: 'rgba(255,255,255,0.08)',
+                        }}
+                      >
+                        <Text style={{ color: Colors.textPrimary, fontSize: 20, fontWeight: '700' }}>♪</Text>
+                      </View>
+                    )}
+
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ color: Colors.orange, fontSize: 11, fontWeight: '800', letterSpacing: 0.5, textTransform: 'uppercase' }}>
+                        {buildTrackReplyPreviewText(pendingTrackReply)}
+                      </Text>
+                      <Text style={{ color: Colors.textPrimary, fontSize: 15, fontWeight: '800', marginTop: 5 }}>
+                        {pendingTrackReply.track_name}
+                      </Text>
+                      <Text style={{ color: Colors.textSecondary, fontSize: 12, marginTop: 2 }}>
+                        {pendingTrackReply.artist_name}
+                      </Text>
+                    </View>
+
+                    <Pressable
+                      onPress={() => setPendingTrackReply(null)}
+                      hitSlop={8}
+                      style={{
+                        width: 28,
+                        height: 28,
+                        borderRadius: 14,
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        backgroundColor: 'rgba(255,255,255,0.06)',
+                        borderWidth: 1,
+                        borderColor: 'rgba(255,255,255,0.08)',
+                      }}
+                    >
+                      <Text style={{ color: Colors.textPrimary, fontSize: 16, fontWeight: '700' }}>×</Text>
+                    </Pressable>
+                  </View>
+                </View>
+              ) : null}
+
               <View
                 style={{
                   borderRadius: 28,
@@ -1033,7 +1493,11 @@ export default function MessagesScreen() {
                     <TextInput
                       value={draft}
                       onChangeText={setDraft}
-                      placeholder="Drop a rec, ask a question, start the vibe..."
+                      placeholder={
+                        pendingTrackReply
+                          ? 'Tell them what this song is doing to you...'
+                          : 'Drop a rec, ask a question, start the vibe...'
+                      }
                       placeholderTextColor={Colors.textMuted}
                       multiline
                       editable={!uploadingVoice}
@@ -1050,7 +1514,7 @@ export default function MessagesScreen() {
 
                     <Pressable
                       onPress={startRecording}
-                      disabled={sending || uploadingVoice || !!recordedVoiceNote}
+                      disabled={sending || uploadingVoice || !!recordedVoiceNote || !!pendingTrackReply}
                       style={{
                         width: 48,
                         height: 48,
@@ -1061,7 +1525,7 @@ export default function MessagesScreen() {
                         backgroundColor: recordedVoiceNote ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.08)',
                         borderWidth: 1,
                         borderColor: 'rgba(255,255,255,0.08)',
-                        opacity: recordedVoiceNote ? 0.35 : 1,
+                        opacity: recordedVoiceNote || pendingTrackReply ? 0.35 : 1,
                       }}
                     >
                       <IconSymbol name="mic.fill" size={18} color={Colors.textPrimary} />
