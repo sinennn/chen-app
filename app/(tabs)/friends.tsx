@@ -3,6 +3,7 @@ import { AddFriendModal } from '@/components/add-friend-modal';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { Colors } from '@/constants/theme';
 import { useAuth } from '@/contexts/AuthContext';
+import { useCurrentUserIdentity } from '@/hooks/use-current-user-identity';
 import { Friend, FriendDiscoverResult, api } from '@/lib/api';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useFocusEffect, useRouter } from 'expo-router';
@@ -497,15 +498,16 @@ export default function FriendsScreen() {
   const [error, setError] = useState<string | null>(null);
   const [addFriendModalVisible, setAddFriendModalVisible] = useState(false);
   const router = useRouter();
-  const { profile, user, loading: authLoading } = useAuth();
+  const { user, loading: authLoading } = useAuth();
+  const currentUser = useCurrentUserIdentity();
 
   const generateFriendLink = () => {
-    if (!profile?.username) {
+    if (!currentUser.hasUsername) {
       Alert.alert('Error', 'Username not found');
       return null;
     }
 
-    return `https://chen.app/friends/${profile.username}`;
+    return `https://chen.app/friends/${currentUser.username}`;
   };
 
   const shareFriendLink = async () => {

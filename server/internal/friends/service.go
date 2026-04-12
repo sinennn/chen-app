@@ -4,8 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
-
-	"chen/pkg/supabase"
+    "chen/pkg/supabase"
 )
 
 const (

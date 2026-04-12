@@ -2,7 +2,7 @@ import { configureGoogleSignIn } from '@/lib/auth';
 import AsyncStorage from '@/lib/storage';
 import { supabase } from '@/lib/supabase';
 import { Session, User } from '@supabase/supabase-js';
-import { createContext, useContext, useEffect, useState } from 'react';
+import { createContext, useContext, useEffect, useRef, useState } from 'react';
 
 export interface UserProfile {
   id: string;
@@ -37,9 +37,38 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
-  const [profileLoading, setProfileLoading] = useState(false);
+  const profileFetchRef = useRef<Promise<UserProfile | null> | null>(null);
 
   const PROFILE_CACHE_KEY = 'chen_user_profile';
+
+  const isNonEmpty = (value?: string | null) => typeof value === 'string' && value.trim().length > 0;
+
+  const mergeProfileWithCached = (
+    incoming: UserProfile | null,
+    cached: UserProfile | null
+  ): UserProfile | null => {
+    if (!incoming && !cached) {
+      return null;
+    }
+
+    if (!incoming) {
+      return cached;
+    }
+
+    if (!cached) {
+      return incoming;
+    }
+
+    return {
+      ...cached,
+      ...incoming,
+      username: isNonEmpty(incoming.username) ? incoming.username : cached.username,
+      user_tag: isNonEmpty(incoming.user_tag) ? incoming.user_tag : cached.user_tag,
+      avatar_id: isNonEmpty(incoming.avatar_id) ? incoming.avatar_id : cached.avatar_id,
+      email: isNonEmpty(incoming.email) ? incoming.email : cached.email,
+      created_at: isNonEmpty(incoming.created_at) ? incoming.created_at : cached.created_at,
+    };
+  };
 
   const loadCachedProfile = async (): Promise<UserProfile | null> => {
     try {
@@ -58,77 +87,84 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         await AsyncStorage.removeItem(PROFILE_CACHE_KEY);
         return;
       }
-      await AsyncStorage.setItem(PROFILE_CACHE_KEY, JSON.stringify(profileData));
+
+      const existingCached = await loadCachedProfile();
+      const mergedProfile = mergeProfileWithCached(profileData, existingCached);
+      if (!mergedProfile) {
+        await AsyncStorage.removeItem(PROFILE_CACHE_KEY);
+        return;
+      }
+
+      await AsyncStorage.setItem(PROFILE_CACHE_KEY, JSON.stringify(mergedProfile));
     } catch (error) {
       console.error('AuthContext: Failed saving cached profile', error);
     }
   };
 
   const fetchUserProfile = async (userId: string): Promise<UserProfile | null> => {
-    if (profileLoading) return null; // Prevent concurrent fetches
+    const cachedProfile = await loadCachedProfile();
 
-    setProfileLoading(true);
-    try {
-      const { data, error } = await supabase
-        .from('users')
-        .select('id, email, username, user_tag, avatar_id, is_premium, created_at')
-        .eq('id', userId)
-        .single();
-
-      if (error) {
-        // If user doesn't exist in users table, create them
-        if (error.code === 'PGRST116') {
-          const { data: { user } } = await supabase.auth.getUser();
-          if (user) {
-            const newUser = {
-              id: user.id,
-              email: user.email || '',
-              username: '',
-              avatar_id: '',
-              is_premium: false,
-              created_at: new Date().toISOString()
-            };
-            const { data: createdUser, error: createError } = await supabase
-              .from('users')
-              .insert(newUser)
-              .select()
-              .single();
-
-            if (createError) {
-              console.error('AuthContext: Error creating user profile:', createError);
-              return null;
-            }
-
-            const profileResult = createdUser as UserProfile;
-            await saveCachedProfile(profileResult);
-            return profileResult;
-          }
-        }
-        console.error('AuthContext: Error fetching user profile:', error);
-
-        const cached = await loadCachedProfile();
-        if (cached) {
-          return cached;
-        }
-
-        return null;
-      }
-
-      const profileResult = data as UserProfile;
-      await saveCachedProfile(profileResult);
-      return profileResult;
-    } catch (error) {
-      console.error('AuthContext: Exception fetching user profile:', error);
-
-      const cached = await loadCachedProfile();
-      if (cached) {
-        return cached;
-      }
-
-      return null;
-    } finally {
-      setProfileLoading(false);
+    if (profileFetchRef.current) {
+      const pendingResult = await profileFetchRef.current;
+      return mergeProfileWithCached(pendingResult, cachedProfile);
     }
+
+    const request = (async () => {
+      try {
+        const { data, error } = await supabase
+          .from('users')
+          .select('id, email, username, user_tag, avatar_id, is_premium, created_at')
+          .eq('id', userId)
+          .single();
+
+        if (error) {
+          // If user doesn't exist in users table, create them
+          if (error.code === 'PGRST116') {
+            const {
+              data: { user },
+            } = await supabase.auth.getUser();
+            if (user) {
+              const newUser = {
+                id: user.id,
+                email: user.email || '',
+                username: '',
+                avatar_id: '',
+                is_premium: false,
+                created_at: new Date().toISOString(),
+              };
+              const { data: createdUser, error: createError } = await supabase
+                .from('users')
+                .insert(newUser)
+                .select()
+                .single();
+
+              if (createError) {
+                console.error('AuthContext: Error creating user profile:', createError);
+                return cachedProfile;
+              }
+
+              const profileResult = mergeProfileWithCached(createdUser as UserProfile, cachedProfile);
+              await saveCachedProfile(profileResult);
+              return profileResult;
+            }
+          }
+          console.error('AuthContext: Error fetching user profile:', error);
+          return cachedProfile;
+        }
+
+        const profileResult = mergeProfileWithCached(data as UserProfile, cachedProfile);
+        await saveCachedProfile(profileResult);
+        return profileResult;
+      } catch (error) {
+        console.error('AuthContext: Exception fetching user profile:', error);
+        return cachedProfile;
+      } finally {
+        profileFetchRef.current = null;
+      }
+    })();
+
+    profileFetchRef.current = request;
+    return request;
   };
 
   useEffect(() => {
@@ -147,7 +183,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       if (session?.user) {
         const userProfile = await fetchUserProfile(session.user.id);
-        setProfile(userProfile);
+        if (userProfile) {
+          setProfile(userProfile);
+        }
       } else {
         if (!cachedProfile) {
           setProfile(null);
@@ -168,7 +206,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       if (session?.user) {
         const userProfile = await fetchUserProfile(session.user.id);
-        setProfile(userProfile);
+        if (userProfile) {
+          setProfile(userProfile);
+        }
       } else {
         setProfile(null);
         await saveCachedProfile(null);
@@ -194,6 +234,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setProfile(null);
       setUser(null);
       setSession(null);
+      profileFetchRef.current = null;
       await saveCachedProfile(null);
 
       // Navigate to login screen
@@ -207,6 +248,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setProfile(null);
       setUser(null);
       setSession(null);
+      profileFetchRef.current = null;
       
       import('expo-router').then(({ router }) => {
         router.replace('/(auth)/signup');
@@ -217,7 +259,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const refreshProfile = async () => {
     if (user) {
       const userProfile = await fetchUserProfile(user.id);
-      setProfile(userProfile);
+      if (userProfile) {
+        setProfile(userProfile);
+      }
     }
   };
 

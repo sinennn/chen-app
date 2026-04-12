@@ -3,6 +3,7 @@ import { EditProfileModal } from '@/components/edit-profile-modal';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { Colors } from '@/constants/theme';
 import { useAuth } from '@/contexts/AuthContext';
+import { useCurrentUserIdentity } from '@/hooks/use-current-user-identity';
 import { RecommendedTrack, SpotifyArtist, api } from '@/lib/api';
 import AsyncStorage from '@/lib/storage';
 import { supabase } from '@/lib/supabase';
@@ -217,7 +218,8 @@ function SpotifyStatusCard({ connected, loading, onReconnect }: {
 }
 
 export default function ProfileScreen() {
-  const { user, profile, signOut, refreshProfile, loading: authLoading } = useAuth();
+  const { user, signOut, refreshProfile, loading: authLoading } = useAuth();
+  const currentUser = useCurrentUserIdentity();
   const [spotifyConnected, setSpotifyConnected] = useState<boolean | null>(null);
   const [nowPlaying, setNowPlaying] = useState<any>(null);
   const [recentTracks, setRecentTracks] = useState<any[]>([]);
@@ -282,7 +284,19 @@ export default function ProfileScreen() {
 
     setStatsLoading(true);
     api.profile.stats()
-      .then((data) => setStats(data || { minutesListened: 0, artistsPlayed: 0, topGenre: '--' }))
+      .then((data) => {
+        const nextStats = data || { minutesListened: 0, artistsPlayed: 0, topGenre: '--' };
+        setStats((prev) => ({
+          minutesListened: nextStats.minutesListened ?? 0,
+          artistsPlayed: nextStats.artistsPlayed ?? 0,
+          topGenre:
+            typeof nextStats.topGenre === 'string' &&
+            nextStats.topGenre.trim() !== '' &&
+            nextStats.topGenre !== '--'
+              ? nextStats.topGenre
+              : prev.topGenre,
+        }));
+      })
       .catch(() => {
         // keep existing stats from cache
       })
@@ -489,16 +503,16 @@ export default function ProfileScreen() {
             <Animated.View style={{ position: 'absolute', top: 6, width: 140, height: 140, borderRadius: 70, backgroundColor: 'rgba(232,100,10,0.2)', opacity: glowOpacity }} />
             <Animated.View style={{ opacity: avatarOpacity, transform: [{ scale: avatarScale }], marginBottom: 16 }}>
               <Image
-                source={{ uri: `https://api.dicebear.com/7.x/adventurer/png?seed=${profile?.avatar_id || 'default'}&size=120&backgroundColor=0D0B09` }}
+                source={{ uri: currentUser.getAvatarUri(120) }}
                 style={{ width: 110, height: 110, borderRadius: 55, borderWidth: 2.5, borderColor: Colors.orange }}
               />
             </Animated.View>
             <Text style={{ color: Colors.textPrimary, fontSize: 28, fontWeight: '800', letterSpacing: -0.5, marginBottom: 4 }}>
-              {profile?.username || user?.user_metadata?.full_name || '--'}
+              {currentUser.username}
             </Text>
-            {(profile as any)?.user_tag && (
+            {currentUser.hasUserTag && (
               <Text style={{ color: Colors.orange, fontSize: 13, fontWeight: '600', marginBottom: 4, opacity: 0.8 }}>
-                @{(profile as any).user_tag}
+                @{currentUser.userTag}
               </Text>
             )}
             <Text style={{ color: Colors.textMuted, fontSize: 13, marginBottom: 20 }}>

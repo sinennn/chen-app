@@ -1,6 +1,7 @@
 //@ts-nocheck
 import { Colors, ThemeKey } from '@/constants/theme';
 import { useAuth } from '@/contexts/AuthContext';
+import { useCurrentUserIdentity } from '@/hooks/use-current-user-identity';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
@@ -228,7 +229,8 @@ export default function SettingsScreen() {
   const [activeTheme, setActiveTheme] = useState<ThemeKey>('default');
   const [isPremium] = useState(false);
   const [spotifyConnected] = useState(true);
-  const { profile, signOut } = useAuth();
+  const { signOut } = useAuth();
+  const currentUser = useCurrentUserIdentity();
 
   const handleTheme = async (key: ThemeKey) => {
     if (key !== 'default' && !isPremium) {
@@ -406,7 +408,7 @@ export default function SettingsScreen() {
                         opacity: 0.2, top: -2, left: -2,
                       }} />
                       <Image
-                        source={{ uri: `https://api.dicebear.com/7.x/adventurer/png?seed=${profile?.avatar_id || 'default'}&size=120&backgroundColor=0D0B09` }}
+                        source={{ uri: currentUser.getAvatarUri(120) }}
                         style={{
                           width: 56, height: 56, borderRadius: 28,
                           borderWidth: 2, borderColor: Colors.orange,
@@ -416,7 +418,7 @@ export default function SettingsScreen() {
 
                     <View style={{ flex: 1 }}>
                       <Text style={{ color: Colors.textPrimary, fontSize: 17, fontWeight: '700', marginBottom: 3 }}>
-                        {profile?.username || 'User'}
+                        {currentUser.username}
                       </Text>
                       <Text style={{ color: Colors.textSecondary, fontSize: 12, marginBottom: 5 }}>
                         Music enthusiast
@@ -530,7 +532,7 @@ export default function SettingsScreen() {
                         Free Plan
                       </Text>
                       <Text style={{ color: Colors.textSecondary, fontSize: 13, lineHeight: 20, marginBottom: 18 }}>
-                        You're missing unlimited Chen, all 5 themes, voice notes, and full listening history.
+                        You&apos;re missing unlimited Chen, all 5 themes, voice notes, and full listening history.
                       </Text>
                       <TouchableOpacity
                         activeOpacity={0.85}

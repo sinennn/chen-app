@@ -3,6 +3,7 @@ import { CommentModal } from '@/components/comment-modal';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { Colors } from '@/constants/theme';
 import { useAuth } from '@/contexts/AuthContext';
+import { useCurrentUserIdentity } from '@/hooks/use-current-user-identity';
 import { ActivityItem, api } from '@/lib/api';
 import { supabase } from '@/lib/supabase';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -983,8 +984,8 @@ function SkeletonCard({ index }: { index: number }) {
 
 export default function FeedScreen() {
   const router = useRouter();
-  const { user, profile: authProfile, refreshProfile, loading: authLoading } = useAuth();
-  const [profile, setProfile] = useState<any>(null);
+  const { user, refreshProfile, loading: authLoading } = useAuth();
+  const currentUser = useCurrentUserIdentity();
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [feed, setFeed] = useState<ActivityItem[]>([]);
@@ -994,13 +995,6 @@ export default function FeedScreen() {
   const [selectedPreviewItem, setSelectedPreviewItem] = useState<ActivityItem | null>(null);
   const [engagementByActivity, setEngagementByActivity] = useState<Record<string, FeedEngagement>>({});
   const [notificationCount, setNotificationCount] = useState(0);
-
-  // Update local profile when auth profile changes
-  useEffect(() => {
-    if (authProfile) {
-      setProfile(authProfile);
-    }
-  }, [authProfile]);
 
   const fetchEngagement = async (activityIds: string[]) => {
     if (activityIds.length === 0 || !user?.id) {
@@ -1389,9 +1383,7 @@ export default function FeedScreen() {
               </Pressable>
 
               <Image
-                source={{ 
-                  uri: `https://api.dicebear.com/7.x/adventurer/png?seed=${profile?.avatar_id || 'default'}&size=40&backgroundColor=0D0B09`
-                }}
+                source={{ uri: currentUser.getAvatarUri(40) }}
                 style={{
                   width: 36,
                   height: 36,

@@ -591,7 +591,10 @@ func (sc *SpotifyClient) GetTopArtistsRaw(timeRange string, limit int) (*Spotify
 	return loadSharedResource(sharedSpotifyCache, cacheKey, topArtistsTTL, func() (*SpotifyTopArtistsResponse, error) {
 		var response *SpotifyTopArtistsResponse
 		err := retryWithBackoff(func() error {
-			requestURL := fmt.Sprintf("https://api.spotify.com/v1/me/top/artists?time_range=%s&limit=%d", timeRange, limit)
+			params := url.Values{}
+			params.Set("time_range", timeRange)
+			params.Set("limit", fmt.Sprintf("%d", limit))
+			requestURL := "https://api.spotify.com/v1/me/top/artists?" + params.Encode()
 			body, _, err := sc.doRequest("top-artists-raw:"+timeRange, http.MethodGet, requestURL, nil, nil)
 			if err != nil {
 				return err

@@ -6,12 +6,12 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"sort"
 	"strings"
 	"time"
 
 	"chen/internal/auth"
 	"chen/internal/friends"
+	"chen/internal/lastfm"
 	"chen/internal/spotify"
 	"chen/pkg/supabase"
 
@@ -145,13 +145,13 @@ func deriveStatsFromListeningActivity(userID string) (ProfileStats, error) {
 	stats.MinutesListened = totalDurationMs / 60000
 	stats.ArtistsPlayed = len(artistCounts)
 
-	spotifyClient, _, spotifyErr := spotify.GetAuthorizedClient(userID)
-	if spotifyErr == nil {
-		if topGenre := deriveTopGenreFromArtistCounts(spotifyClient, artistCounts); topGenre != "" {
+	lastfmClient, lastfmErr := lastfm.NewClientFromEnv()
+	if lastfmErr == nil {
+		if topGenre := deriveTopGenreFromLastFM(lastfmClient, artistCounts); topGenre != "" {
 			stats.TopGenre = topGenre
 		}
-	} else if !errors.Is(spotifyErr, spotify.ErrNoSpotifyConnection) && !spotify.IsRateLimitError(spotifyErr) {
-		return stats, fmt.Errorf("failed to load spotify connection for genre lookup: %w", spotifyErr)
+	} else if !errors.Is(lastfmErr, lastfm.ErrNotConfigured) {
+		return stats, fmt.Errorf("failed to resolve top genre from last.fm: %w", lastfmErr)
 	}
 
 	return stats, nil
@@ -178,61 +178,6 @@ func estimateListeningDurationMs(row map[string]any) int {
 	}
 
 	return 0
-}
-
-func deriveTopGenreFromArtistCounts(client *spotify.SpotifyClient, artistCounts map[string]int) string {
-	type rankedArtist struct {
-		Name  string
-		Plays int
-	}
-
-	rankedArtists := make([]rankedArtist, 0, len(artistCounts))
-	for name, plays := range artistCounts {
-		if strings.TrimSpace(name) == "" || plays <= 0 {
-			continue
-		}
-		rankedArtists = append(rankedArtists, rankedArtist{Name: name, Plays: plays})
-	}
-
-	sort.SliceStable(rankedArtists, func(i, j int) bool {
-		if rankedArtists[i].Plays != rankedArtists[j].Plays {
-			return rankedArtists[i].Plays > rankedArtists[j].Plays
-		}
-		return rankedArtists[i].Name < rankedArtists[j].Name
-	})
-
-	genreCounts := make(map[string]int)
-	topGenre := ""
-	topCount := 0
-
-	for _, artist := range rankedArtists[:min(len(rankedArtists), 10)] {
-		genres, err := client.GetArtistGenres(artist.Name)
-		if err != nil {
-			log.Printf("profile stats genre lookup failed artist=%q plays=%d err=%v", artist.Name, artist.Plays, err)
-			continue
-		}
-		log.Printf("profile stats genre lookup artist=%q plays=%d genres=%v", artist.Name, artist.Plays, genres)
-
-		for _, genre := range genres {
-			normalized := strings.ToLower(strings.TrimSpace(genre))
-			if normalized == "" {
-				continue
-			}
-
-			genreCounts[normalized] += artist.Plays
-			if genreCounts[normalized] > topCount {
-				topCount = genreCounts[normalized]
-				topGenre = normalized
-			}
-		}
-	}
-
-	if topGenre == "" {
-		log.Printf("profile stats genre unresolved artistCounts=%v", artistCounts)
-		return ""
-	}
-
-	return formatGenre(topGenre)
 }
 
 func getTopArtists(c *gin.Context) {
@@ -351,48 +296,6 @@ func formatGenre(value string) string {
 		parts[i] = strings.ToUpper(part[:1]) + part[1:]
 	}
 	return strings.Join(parts, " ")
-}
-
-func deriveTopGenre(client *spotify.SpotifyClient) string {
-	for _, timeRange := range []string{"short_term", "medium_term", "long_term"} {
-		response, err := client.GetTopArtistsRaw(timeRange, 10)
-		if err != nil {
-			continue
-		}
-
-		genreCounts := make(map[string]int)
-		topGenre := ""
-		topCount := 0
-		for _, artist := range response.Items[:min(len(response.Items), 10)] {
-			genres := artist.Genres
-			if len(genres) == 0 && artist.ID != "" {
-				fallbackGenres, genreErr := client.GetArtistGenresByID(artist.ID)
-				if genreErr == nil && len(fallbackGenres) > 0 {
-					genres = fallbackGenres
-				}
-			}
-
-			log.Printf("profile stats top artist [%s]: %s id=%s genres=%v", timeRange, artist.Name, artist.ID, genres)
-			for _, genre := range genres {
-				normalized := strings.ToLower(strings.TrimSpace(genre))
-				if normalized == "" {
-					continue
-				}
-
-				genreCounts[normalized]++
-				if genreCounts[normalized] > topCount {
-					topCount = genreCounts[normalized]
-					topGenre = normalized
-				}
-			}
-		}
-
-		if topGenre != "" {
-			return formatGenre(topGenre)
-		}
-	}
-
-	return ""
 }
 
 func getPublicProfile(c *gin.Context) {

@@ -1,6 +1,6 @@
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { Colors } from '@/constants/theme';
-import { useAuth } from '@/contexts/AuthContext';
+import { useCurrentUserIdentity } from '@/hooks/use-current-user-identity';
 import { ChenConversationMessage, api } from '@/lib/api';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useEffect, useRef, useState } from 'react';
@@ -307,8 +307,8 @@ function ChatBubble({ message, isUser }: { message: ChatMessage; isUser: boolean
 // ── Screen ────────────────────────────────────────────────────────────────────
 
 export default function ChenScreen() {
-  const { profile } = useAuth();
-  const name = profile?.username || 'you';
+  const currentUser = useCurrentUserIdentity();
+  const name = currentUser.greetingName;
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
   const [isThinking, setIsThinking] = useState(false);
@@ -366,7 +366,7 @@ export default function ChenScreen() {
     return () => {
       cancelled = true;
     };
-  }, [name, profile?.id]);
+  }, [name]);
 
   const handleSend = async () => {
     if (!input.trim() || isThinking || isLoadingConversation) return;
