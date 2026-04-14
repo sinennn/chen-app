@@ -34,6 +34,9 @@ func main() {
 
 	// concurrency!!!!!
 	go spotify.StartPoller()
+	if os.Getenv("ENABLE_LISTENING_NOTIFICATIONS_SCHEDULER") == "true" {
+		go notifications.StartListeningInsightsScheduler()
+	}
 
 		port := os.Getenv("PORT")
 	if port == "" {

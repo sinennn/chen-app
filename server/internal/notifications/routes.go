@@ -42,6 +42,8 @@ func RegisterRoutes(rg *gin.RouterGroup) {
 	rg.GET("/unread-count", getUnreadCount)
 	rg.POST("/:id/read", markNotificationRead)
 	rg.POST("/read-all", markAllNotificationsRead)
+	rg.POST("/push-token", registerPushTokenRoute)
+	rg.POST("/listening-insight", generateListeningInsightRoute)
 }
 
 func CreateNotification(userID, actorID, notificationType, title, body, entityID string, metadata map[string]any) error {
@@ -160,6 +162,47 @@ func markAllNotificationsRead(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "Notifications marked as read"})
+}
+
+func registerPushTokenRoute(c *gin.Context) {
+	userID, exists := auth.GetUserFromContext(c)
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
+		return
+	}
+
+	var payload pushTokenPayload
+	if err := c.ShouldBindJSON(&payload); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid push token payload"})
+		return
+	}
+
+	if err := registerPushToken(userID, payload); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to register push token"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Push token registered"})
+}
+
+func generateListeningInsightRoute(c *gin.Context) {
+	userID, exists := auth.GetUserFromContext(c)
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
+		return
+	}
+
+	item, err := GenerateListeningInsightForUser(userID, time.Now().UTC())
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate listening insight"})
+		return
+	}
+	if item == nil {
+		c.JSON(http.StatusOK, gin.H{"message": "No insight generated"})
+		return
+	}
+
+	c.JSON(http.StatusOK, item)
 }
 
 func loadNotifications(userID string) ([]NotificationItem, int, error) {

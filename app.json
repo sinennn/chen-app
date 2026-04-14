@@ -3,6 +3,12 @@
     "name": "Chen",
     "slug": "Chen",
     "version": "1.0.0",
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/REPLACE_WITH_EAS_PROJECT_ID"
+    },
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "com.quinnn.chen",
@@ -56,6 +62,11 @@
     ],
     "experiments": {
       "typedRoutes": true
+    },
+    "extra": {
+      "eas": {
+        "projectId": "REPLACE_WITH_EAS_PROJECT_ID"
+      }
     }
   }
 }

@@ -224,6 +224,12 @@ export type NotificationUnreadCount = {
   count: number;
 };
 
+export type PushTokenPayload = {
+  token: string;
+  platform?: string;
+  device_id?: string;
+};
+
 export type RecommendedTrack = {
   name: string;
   artist: string;
@@ -372,6 +378,8 @@ export const api = {
     unreadCount: () => getJSON<NotificationUnreadCount>('/notifications/unread-count'),
     markRead: (id: string) => postJSON(`/notifications/${encodeURIComponent(id)}/read`, {}),
     markAllRead: () => postJSON('/notifications/read-all', {}),
+    registerPushToken: (payload: PushTokenPayload) => postJSON('/notifications/push-token', payload),
+    generateListeningInsight: () => postJSON('/notifications/listening-insight', {}),
   },
   messages: {
     threads: () => getJSON<MessageThread[]>('/messages/threads'),

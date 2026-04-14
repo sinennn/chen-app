@@ -1,4 +1,5 @@
 import { configureGoogleSignIn } from '@/lib/auth';
+import { syncPushToken } from '@/lib/push-notifications';
 import AsyncStorage from '@/lib/storage';
 import { supabase } from '@/lib/supabase';
 import { Session, User } from '@supabase/supabase-js';
@@ -219,6 +220,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     return () => subscription.unsubscribe();
   }, []);
+
+  useEffect(() => {
+    if (!session?.user) return;
+
+    syncPushToken().catch((error) => {
+      console.warn('AuthContext: Push token sync failed', error);
+    });
+  }, [session?.user?.id]);
 
   const signOut = async () => {
     try {

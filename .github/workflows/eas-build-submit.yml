@@ -1,0 +1,42 @@
+name: EAS Build and Submit
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch: {}
+
+jobs:
+  build-and-submit:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20.x
+          cache: npm
+
+      - name: Setup Expo and EAS
+        uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+          packager: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Prepare submission credentials
+        run: |
+          mkdir -p secrets
+          printf "%s" "$GOOGLE_SERVICE_ACCOUNT_KEY_JSON" > secrets/google-service-account.json
+          printf "%s" "$ASC_API_KEY_JSON" > secrets/asc-api-key.json
+        env:
+          GOOGLE_SERVICE_ACCOUNT_KEY_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_KEY_JSON }}
+          ASC_API_KEY_JSON: ${{ secrets.ASC_API_KEY_JSON }}
+
+      - name: Build and submit to stores
+        run: eas build --platform all --profile production --auto-submit --non-interactive
