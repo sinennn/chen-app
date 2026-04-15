@@ -16,14 +16,14 @@ Notifications.setNotificationHandler({
   }),
 });
 
-export async function syncPushToken(): Promise<void> {
+export async function syncPushToken(options?: { force?: boolean }): Promise<void> {
   if (Platform.OS === 'web') return;
 
   const token = await registerForPushNotifications();
   if (!token) return;
 
   const lastToken = await AsyncStorage.getItem(LAST_PUSH_TOKEN_KEY);
-  if (lastToken === token) return;
+  if (!options?.force && lastToken === token) return;
 
   await api.notifications.registerPushToken({
     token,
@@ -32,6 +32,22 @@ export async function syncPushToken(): Promise<void> {
   });
 
   await AsyncStorage.setItem(LAST_PUSH_TOKEN_KEY, token);
+}
+
+export async function unregisterPushToken(): Promise<void> {
+  if (Platform.OS === 'web') return;
+
+  const token = await AsyncStorage.getItem(LAST_PUSH_TOKEN_KEY);
+  if (!token) return;
+
+  try {
+    await api.notifications.unregisterPushToken({
+      token,
+      device_id: Device.modelId ?? undefined,
+    });
+  } finally {
+    await AsyncStorage.removeItem(LAST_PUSH_TOKEN_KEY);
+  }
 }
 
 async function registerForPushNotifications(): Promise<string | null> {

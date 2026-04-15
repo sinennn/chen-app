@@ -37,6 +37,8 @@ const MAPPING = {
   'person.circle.fill': 'person',
   // Ring-style icon for Chen tab
   'circle': 'circle',
+  'record.circle': 'radio-button-unchecked',
+  'arrow.up': 'arrow-upward',
 } as IconMapping;
 
 /**

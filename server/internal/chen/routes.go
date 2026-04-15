@@ -38,16 +38,16 @@ type ConversationMessage struct {
 }
 
 type musicContext struct {
-	Username         string
-	NowPlaying       string
-	RecentTracks     string
-	FriendsListening string
-	TopArtists       string
-	TopTracks        string
-	HasNowPlaying    bool
-	HasRecentTracks  bool
+	Username          string
+	NowPlaying        string
+	RecentTracks      string
+	FriendsListening  string
+	TopArtists        string
+	TopTracks         string
+	HasNowPlaying     bool
+	HasRecentTracks   bool
 	HasFriendActivity bool
-	HasTasteProfile  bool
+	HasTasteProfile   bool
 }
 
 func RegisterRoutes(rg *gin.RouterGroup) {
@@ -55,6 +55,14 @@ func RegisterRoutes(rg *gin.RouterGroup) {
 	rg.POST("/chat", handleChat)
 }
 
+// @Summary Get Conversation History
+// @Description Fetch the Chen AI chat conversation history with music context
+// @Tags chen
+// @Produce json
+// @Success 200 {object} ConversationResponse
+// @Failure 401 {object} map[string]string
+// @Security Bearer
+// @Router /chen/conversation [get]
 func getConversation(c *gin.Context) {
 	userID, exists := auth.GetUserFromContext(c)
 	if !exists {
@@ -92,6 +100,17 @@ func getConversation(c *gin.Context) {
 	c.JSON(http.StatusOK, ConversationResponse{Messages: messages})
 }
 
+// @Summary Chat with Chen AI
+// @Description Send a message to Chen AI and get a music-aware response
+// @Tags chen
+// @Accept json
+// @Produce json
+// @Param request body ChatRequest true "User message and conversation history"
+// @Success 200 {object} ChatResponse
+// @Failure 400 {object} map[string]string
+// @Failure 401 {object} map[string]string
+// @Security Bearer
+// @Router /chen/chat [post]
 func handleChat(c *gin.Context) {
 	userID, exists := auth.GetUserFromContext(c)
 	if !exists {

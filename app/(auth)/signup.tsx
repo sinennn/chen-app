@@ -93,7 +93,7 @@ export default function SignupScreen() {
             className="text-3xl font-semibold mt-32"
             style={{ color: Colors.textPrimary }}
           >
-            Welcome !!!
+            Welcome!!!
           </Text>
 
           <Text
@@ -103,7 +103,7 @@ export default function SignupScreen() {
             Connect your music world and see what your friends are listening to in real time.
           </Text>
 
-          <View className="pt-[10px]">
+  <View className="pt-[10px]">
             <Pressable
               onPress={handleGoogleSignUp}
               disabled={googleLoading}
@@ -132,8 +132,8 @@ export default function SignupScreen() {
               </Text>
             </Pressable>
 
-            {/* OR Divider */}
-            <View className="my-7 flex-row items-center">
+        {Platform.OS === 'ios' ? (
+             <View className="my-7 flex-row items-center">
               <View
                 style={{
                   flex: 1,
@@ -155,53 +155,56 @@ export default function SignupScreen() {
                 }}
               />
             </View>
+        ) : null}
 
-            {/* Apple Button */}
-            <Pressable
-              onPress={async () => {
-                if (!agree) {
-                  Alert.alert('Terms Required', 'Please agree to the Terms of Use to continue.');
-                  return;
-                }
-
-                setAppleLoading(true);
-                try {
-                  const result = await signInWithApple();
-                  if (result.error && result.error !== 'cancelled') {
-                    Alert.alert('Sign In Error', result.error);
+            {Platform.OS === 'ios' ? (
+                <Pressable
+                onPress={async () => {
+                  if (!agree) {
+                    Alert.alert('Terms Required', 'Please agree to the Terms of Use to continue.');
+                    return;
                   }
-                  // Let AuthContext handle user creation and routing
-                } finally {
-                  setAppleLoading(false);
-                }
-              }}
-              disabled={appleLoading}
-              className="w-full flex-row items-center justify-center gap-3 rounded-full py-4"
-              style={{
-                backgroundColor: appleLoading ? 'rgba(255,255,255,0.05)' : 'rgba(255,255,255,0.12)',
-                borderWidth: 1,
-                borderColor: 'rgba(255,255,255,0.18)',
-                opacity: appleLoading ? 0.6 : 1,
-              }}
-            >
-              {appleLoading ? (
-                <ActivityIndicator size="small" color={Colors.orange} />
-              ) : (
-                <Image
-                  source={require('@/assets/apple-logo.png')}
-                  style={{ width: 20, height: 20 }}
-                  resizeMode="contain"
-                />
-              )}
-              <Text
-                className="text-sm font-semibold"
-                style={{ color: Colors.textPrimary }}
+
+                  setAppleLoading(true);
+                  try {
+                    const result = await signInWithApple();
+                    if (result.error && result.error !== 'cancelled') {
+                      Alert.alert('Sign In Error', result.error);
+                    }
+                    // Let AuthContext handle user creation and routing
+                  } finally {
+                    setAppleLoading(false);
+                  }
+                }}
+                disabled={appleLoading}
+                className="w-full flex-row items-center justify-center gap-3 rounded-full py-4"
+                style={{
+                  backgroundColor: appleLoading ? 'rgba(255,255,255,0.05)' : 'rgba(255,255,255,0.12)',
+                  borderWidth: 1,
+                  borderColor: 'rgba(255,255,255,0.18)',
+                  opacity: appleLoading ? 0.6 : 1,
+                }}
               >
-                {appleLoading ? ' ' : 'Continue with Apple'}
-              </Text>
-            </Pressable>
+                {appleLoading ? (
+                  <ActivityIndicator size="small" color={Colors.orange} />
+                ) : (
+                  <Image
+                    source={require('@/assets/apple-logo.png')}
+                    style={{ width: 20, height: 20 }}
+                    resizeMode="contain"
+                  />
+                )}
+                <Text
+                  className="text-sm font-semibold"
+                  style={{ color: Colors.textPrimary }}
+                >
+                  {appleLoading ? ' ' : 'Continue with Apple'}
+                </Text>
+              </Pressable>
+            ) : null}
           </View>
-          {/* Terms Checkbox */}
+        
+        <View className="flex-1 pb-10" />
           <Pressable
             onPress={() => setAgree((v) => !v)}
             className="mt-8 flex-row items-center gap-3"
@@ -259,11 +262,11 @@ export default function SignupScreen() {
             <IconSymbol name="chevron.right" size={26} color={isFormValid ? Colors.white : 'rgba(255,255,255,0.55)'} />
           </Pressable> */}
 
-          <Pressable onPress={() => router.push('/(auth)/login')} className="items-center pt-[136px]">
+          {/* <Pressable onPress={() => router.push('/(auth)/login')} className="items-center pt-[136px]">
             <Text className="text-sm font-semibold" style={{ color: 'rgba(255,255,255,0.75)' }}>
               Already have an account? <Text className='text-orange-500'>Sign In</Text>
             </Text>
-          </Pressable>
+          </Pressable> */}
 
         </ScrollView>
       </View>

@@ -1,3 +1,6 @@
+//@ts-ignore
+import { Platform } from 'react-native';
+
 import { supabase } from './supabase';
 
 export type ActivityItem = {
@@ -230,6 +233,11 @@ export type PushTokenPayload = {
   device_id?: string;
 };
 
+export type DeletePushTokenPayload = {
+  token?: string;
+  device_id?: string;
+};
+
 export type RecommendedTrack = {
   name: string;
   artist: string;
@@ -270,7 +278,20 @@ export type SpotifyTopArtistsResponse = {
   previous: string | null;
 };
 
-const API_BASE = process.env.EXPO_PUBLIC_API_URL?.replace(/\/$/, '') || 'http://localhost:8080/api/v1';
+function resolveApiBase() {
+  const configuredBase = process.env.EXPO_PUBLIC_API_URL?.replace(/\/$/, '');
+  const fallbackBase = 'http://localhost:5000/api/v1';
+  const base = configuredBase || fallbackBase;
+
+  // Android emulators cannot reach the host machine via localhost.
+  if (Platform.OS === 'android' && base.includes('localhost')) {
+    return base.replace('localhost', '10.0.2.2');
+  }
+
+  return base;
+}
+
+const API_BASE = resolveApiBase();
 
 async function getAuthHeaders(): Promise<Record<string, string>> {
   const { data: { session } } = await supabase.auth.getSession();
@@ -307,6 +328,27 @@ async function postJSON<T>(path: string, body: any): Promise<T> {
     throw new Error(text || `API ${path} failed with ${res.status}`);
   }
   const json = await res.json();
+  return (json.data ?? json) as T;
+}
+
+async function deleteJSON<T>(path: string, body?: any): Promise<T> {
+  const headers = await getAuthHeaders();
+  const res = await fetch(`${API_BASE}${path}`, {
+    method: 'DELETE',
+    headers,
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(text || `API ${path} failed with ${res.status}`);
+  }
+
+  const text = await res.text();
+  if (!text) {
+    return {} as T;
+  }
+
+  const json = JSON.parse(text);
   return (json.data ?? json) as T;
 }
 
@@ -379,6 +421,7 @@ export const api = {
     markRead: (id: string) => postJSON(`/notifications/${encodeURIComponent(id)}/read`, {}),
     markAllRead: () => postJSON('/notifications/read-all', {}),
     registerPushToken: (payload: PushTokenPayload) => postJSON('/notifications/push-token', payload),
+    unregisterPushToken: (payload: DeletePushTokenPayload) => deleteJSON('/notifications/push-token', payload),
     generateListeningInsight: () => postJSON('/notifications/listening-insight', {}),
   },
   messages: {

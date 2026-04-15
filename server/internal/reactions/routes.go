@@ -55,6 +55,15 @@ func RegisterRoutes(rg *gin.RouterGroup) {
 	rg.POST("/toggle", toggleReaction)
 }
 
+// @Summary Get Engagement Metrics
+// @Description Get comments and reactions counts for multiple activities
+// @Tags reactions
+// @Produce json
+// @Param activity_ids query string true "Comma-separated list of activity IDs"
+// @Success 200 {object} map[string]engagementResponse
+// @Failure 401 {object} map[string]string
+// @Security Bearer
+// @Router /reactions/engagement [get]
 func getEngagement(c *gin.Context) {
 	userID, exists := auth.GetUserFromContext(c)
 	if !exists {
@@ -136,6 +145,15 @@ func getEngagement(c *gin.Context) {
 	c.JSON(http.StatusOK, result)
 }
 
+// @Summary Get Comments on Activity
+// @Description Fetch all comments on a specific activity
+// @Tags reactions
+// @Produce json
+// @Param activityID path string true "Activity ID"
+// @Success 200 {array} commentResponse
+// @Failure 401 {object} map[string]string
+// @Security Bearer
+// @Router /reactions/comments/{activityID} [get]
 func getComments(c *gin.Context) {
 	_, exists := auth.GetUserFromContext(c)
 	if !exists {
@@ -235,6 +253,17 @@ func getComments(c *gin.Context) {
 	c.JSON(http.StatusOK, response)
 }
 
+// @Summary Create Comment
+// @Description Add a comment on an activity
+// @Tags reactions
+// @Accept json
+// @Produce json
+// @Param request body createCommentRequest true "Comment content"
+// @Success 200 {object} commentResponse
+// @Failure 400 {object} map[string]string
+// @Failure 401 {object} map[string]string
+// @Security Bearer
+// @Router /reactions/comments [post]
 func createComment(c *gin.Context) {
 	userID, exists := auth.GetUserFromContext(c)
 	if !exists {
@@ -277,6 +306,17 @@ func createComment(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"ok": true})
 }
 
+// @Summary Toggle Reaction
+// @Description Add or remove a reaction (love, fire, headphones) on an activity
+// @Tags reactions
+// @Accept json
+// @Produce json
+// @Param request body toggleReactionRequest true "Activity ID and reaction type (love, fire, headphones)"
+// @Success 200 {object} map[string]string
+// @Failure 400 {object} map[string]string
+// @Failure 401 {object} map[string]string
+// @Security Bearer
+// @Router /reactions/toggle [post]
 func toggleReaction(c *gin.Context) {
 	userID, exists := auth.GetUserFromContext(c)
 	if !exists {

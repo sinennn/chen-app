@@ -129,46 +129,48 @@ export default function LoginScreen() {
             />
           </View>
 
-          <Pressable
-            onPress={async () => {
-              if (!agree) {
-                Alert.alert('Terms Required', 'Please agree to the Terms of Use to continue.');
-                return;
-              }
-
-              setAppleLoading(true);
-              try {
-                const result = await signInWithApple();
-                if (result.error && result.error !== 'cancelled') {
-                  Alert.alert('Sign In Error', result.error);
+          {Platform.OS === 'ios' ? (
+            <Pressable
+              onPress={async () => {
+                if (!agree) {
+                  Alert.alert('Terms Required', 'Please agree to the Terms of Use to continue.');
+                  return;
                 }
-                // Auth layout will handle routing based on onboarding status
-              } finally {
-                setAppleLoading(false);
-              }
-            }}
-            disabled={appleLoading}
-            className="mt-3 w-full flex-row items-center justify-center gap-3 rounded-full py-4"
-            style={{
-              backgroundColor: appleLoading ? 'rgba(255,255,255,0.05)' : 'rgba(255,255,255,0.12)',
-              borderWidth: 1,
-              borderColor: 'rgba(255,255,255,0.14)',
-              opacity: appleLoading ? 0.6 : 1,
-            }}
-          >
-            {appleLoading ? (
-              <ActivityIndicator size="small" color={Colors.orange} />
-            ) : (
-              <Image
-                source={require('@/assets/apple-logo.png')}
-                style={{ width: 20, height: 20 }}
-                resizeMode="contain"
-              />
-            )}
-            <Text className="text-sm font-semibold" style={{ color: Colors.textPrimary }}>
-              {appleLoading ? ' ' : 'Continue with Apple'}
-            </Text>
-          </Pressable>
+
+                setAppleLoading(true);
+                try {
+                  const result = await signInWithApple();
+                  if (result.error && result.error !== 'cancelled') {
+                    Alert.alert('Sign In Error', result.error);
+                  }
+                  // Auth layout will handle routing based on onboarding status
+                } finally {
+                  setAppleLoading(false);
+                }
+              }}
+              disabled={appleLoading}
+              className="mt-3 w-full flex-row items-center justify-center gap-3 rounded-full py-4"
+              style={{
+                backgroundColor: appleLoading ? 'rgba(255,255,255,0.05)' : 'rgba(255,255,255,0.12)',
+                borderWidth: 1,
+                borderColor: 'rgba(255,255,255,0.14)',
+                opacity: appleLoading ? 0.6 : 1,
+              }}
+            >
+              {appleLoading ? (
+                <ActivityIndicator size="small" color={Colors.orange} />
+              ) : (
+                <Image
+                  source={require('@/assets/apple-logo.png')}
+                  style={{ width: 20, height: 20 }}
+                  resizeMode="contain"
+                />
+              )}
+              <Text className="text-sm font-semibold" style={{ color: Colors.textPrimary }}>
+                {appleLoading ? ' ' : 'Continue with Apple'}
+              </Text>
+            </Pressable>
+          ) : null}
 
           <Pressable
             onPress={() => setAgree((v) => !v)}
@@ -220,4 +222,3 @@ export default function LoginScreen() {
     </KeyboardAvoidingView>
   );
 }
-

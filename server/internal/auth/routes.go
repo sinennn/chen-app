@@ -29,6 +29,12 @@ func RegisterProtectedRoutes(rg *gin.RouterGroup) {
 	rg.POST("/user", handleUpdateUser)
 }
 
+// @Summary Auth Callback
+// @Description OAuth callback endpoint for authentication providers
+// @Tags auth
+// @Produce json
+// @Success 200 {object} map[string]string
+// @Router /auth/callback [post]
 func handleAuthCallback(c *gin.Context) {
 	// This will be called after successful OAuth
 	// For now, just return success
@@ -38,6 +44,14 @@ func handleAuthCallback(c *gin.Context) {
 	})
 }
 
+// @Summary Get Current User
+// @Description Fetch the current authenticated user's profile
+// @Tags auth
+// @Produce json
+// @Success 200 {object} UserProfile
+// @Failure 401 {object} map[string]string
+// @Security Bearer
+// @Router /auth/user [get]
 func handleGetUser(c *gin.Context) {
 	userID, exists := c.Get("user_id")
 	if !exists {
@@ -78,6 +92,17 @@ func handleGetUser(c *gin.Context) {
 	}
 
 	if len(users) == 0 {
+		// @Summary Update Current User
+		// @Description Update the current authenticated user's profile (username, avatar, etc.)
+		// @Tags auth
+		// @Accept json
+		// @Produce json
+		// @Param request body map[string]interface{} true "User profile updates"
+		// @Success 200 {object} UserProfile
+		// @Failure 400 {object} map[string]string
+		// @Failure 401 {object} map[string]string
+		// @Security Bearer
+		// @Router /auth/user [post]
 		c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
 		return
 	}
@@ -186,6 +211,13 @@ func handleUpdateUser(c *gin.Context) {
 	})
 }
 
+// @Summary Sign Out
+// @Description Sign out the current user
+// @Tags auth
+// @Produce json
+// @Success 200 {object} map[string]string
+// @Security Bearer
+// @Router /auth/signout [post]
 func handleSignOut(c *gin.Context) {
 	// Handle sign out logic
 	c.JSON(http.StatusOK, gin.H{

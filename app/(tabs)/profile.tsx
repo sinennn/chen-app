@@ -234,6 +234,9 @@ export default function ProfileScreen() {
   const avatarScale = useRef(new Animated.Value(0.85)).current;
   const avatarOpacity = useRef(new Animated.Value(0)).current;
   const glowOpacity = useRef(new Animated.Value(0.5)).current;
+  const isNowPlayingLive = !!nowPlaying?.is_playing;
+  const featuredPlayback = isNowPlayingLive ? nowPlaying : (recentTracks[0] ?? nowPlaying);
+  const playbackLabel = isNowPlayingLive ? 'Now Playing' : 'Last Played';
 
   const checkSpotifyConnection = async () => {
     try {
@@ -429,7 +432,16 @@ export default function ProfileScreen() {
             return;
           }
 
-          setNowPlaying(null);
+          setNowPlaying({
+            track_name: activity.track_name,
+            artist_name: activity.artist_name,
+            album_name: activity.album_name,
+            album_art_url: activity.album_art_url,
+            is_playing: false,
+          });
+          setRecentTracks((prev) =>
+            dedupeRecentTracks([activity, ...prev]).slice(0, 10)
+          );
         }
       )
       .subscribe();
@@ -531,12 +543,12 @@ export default function ProfileScreen() {
             <View style={{ borderRadius: 20, overflow: 'hidden', borderWidth: 1, borderColor: 'rgba(232,100,10,0.2)' }}>
               <LinearGradient colors={['rgba(232,100,10,0.18)', 'rgba(232,100,10,0.04)', 'transparent']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={{ padding: 16 }}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 14 }}>
-                  <SectionLabel>Now Playing</SectionLabel>
-                  {nowPlaying?.is_playing && <LiveDot />}
+                  <SectionLabel>{playbackLabel}</SectionLabel>
+                  {isNowPlayingLive && <LiveDot />}
                 </View>
                 <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                  {nowPlaying?.album_art_url ? (
-                    <Image source={{ uri: nowPlaying.album_art_url }} style={{ width: 70, height: 70, borderRadius: 14, marginRight: 14 }} />
+                  {featuredPlayback?.album_art_url ? (
+                    <Image source={{ uri: featuredPlayback.album_art_url }} style={{ width: 70, height: 70, borderRadius: 14, marginRight: 14 }} />
                   ) : (
                     <View style={{ width: 70, height: 70, borderRadius: 14, marginRight: 14, backgroundColor: 'rgba(255,255,255,0.06)', alignItems: 'center', justifyContent: 'center' }}>
                       <Text style={{ color: Colors.textMuted, fontSize: 24 }}>♪</Text>
@@ -544,13 +556,13 @@ export default function ProfileScreen() {
                   )}
                   <View style={{ flex: 1 }}>
                     <Text style={{ color: Colors.textPrimary, fontSize: 17, fontWeight: '700', marginBottom: 4 }}>
-                      {nowPlaying?.track_name || "Nothing's playing rn"} 
+                      {featuredPlayback?.track_name || "Nothing's playing rn"}
                     </Text>
                     <Text style={{ color: Colors.textSecondary, fontSize: 14 }}>
-                      {nowPlaying?.artist_name || "and no one's singing either"}
+                      {featuredPlayback?.artist_name || "and no one's singing either"}
                     </Text>
                   </View>
-                  {nowPlaying?.is_playing && <EqualizerBars />}
+                  {isNowPlayingLive && <EqualizerBars />}
                 </View>
               </LinearGradient>
             </View>

@@ -1,0 +1,1256 @@
+basePath: /api/v1
+definitions:
+  activity.ActivityItem:
+    properties:
+      album_art_url:
+        type: string
+      album_name:
+        type: string
+      artist_name:
+        type: string
+      avatar_id:
+        type: string
+      id:
+        type: string
+      is_playing:
+        type: boolean
+      platform:
+        type: string
+      played_at:
+        type: string
+      preview_url:
+        type: string
+      spotify_url:
+        type: string
+      started_at:
+        type: string
+      track_id:
+        type: string
+      track_name:
+        type: string
+      user_id:
+        type: string
+      username:
+        type: string
+    type: object
+  auth.UserProfile:
+    properties:
+      avatar_id:
+        type: string
+      created_at:
+        type: string
+      email:
+        type: string
+      id:
+        type: string
+      is_premium:
+        type: boolean
+      user_tag:
+        type: string
+      username:
+        type: string
+    type: object
+  chen.ChatRequest:
+    properties:
+      history:
+        items:
+          $ref: '#/definitions/chen.ConversationMessage'
+        type: array
+      message:
+        type: string
+    type: object
+  chen.ChatResponse:
+    properties:
+      reply:
+        type: string
+    type: object
+  chen.ConversationMessage:
+    properties:
+      content:
+        type: string
+      role:
+        type: string
+    type: object
+  chen.ConversationResponse:
+    properties:
+      messages:
+        items:
+          $ref: '#/definitions/chen.ConversationMessage'
+        type: array
+    type: object
+  friends.ActivityItem:
+    properties:
+      album_art_url:
+        type: string
+      album_name:
+        type: string
+      artist_name:
+        type: string
+      avatar_id:
+        type: string
+      id:
+        type: string
+      is_playing:
+        type: boolean
+      platform:
+        type: string
+      started_at:
+        type: string
+      track_name:
+        type: string
+      user_id:
+        type: string
+      username:
+        type: string
+    type: object
+  friends.AddFriendRequest:
+    properties:
+      username:
+        type: string
+    required:
+    - username
+    type: object
+  friends.Friend:
+    properties:
+      avatar_id:
+        type: string
+      compatibility:
+        type: integer
+      current_track:
+        $ref: '#/definitions/friends.ActivityItem'
+      id:
+        type: string
+      is_online:
+        type: boolean
+      username:
+        type: string
+    type: object
+  friends.FriendshipActionRequest:
+    properties:
+      friendship_id:
+        type: string
+    required:
+    - friendship_id
+    type: object
+  friends.SearchResult:
+    properties:
+      avatar_id:
+        type: string
+      id:
+        type: string
+      relationship_status:
+        type: string
+      user_tag:
+        type: string
+      username:
+        type: string
+    type: object
+  messages.MessageFriend:
+    properties:
+      avatar_id:
+        type: string
+      id:
+        type: string
+      username:
+        type: string
+    type: object
+  messages.MessageItem:
+    properties:
+      audio_duration_ms:
+        type: integer
+      audio_url:
+        type: string
+      content:
+        type: string
+      created_at:
+        type: string
+      id:
+        type: string
+      is_mine:
+        type: boolean
+      message_type:
+        type: string
+      read_at:
+        type: string
+      recipient_id:
+        type: string
+      sender_id:
+        type: string
+      track_metadata:
+        $ref: '#/definitions/messages.TrackMetadata'
+    type: object
+  messages.ThreadResponse:
+    properties:
+      friend:
+        $ref: '#/definitions/messages.MessageFriend'
+      messages:
+        items:
+          $ref: '#/definitions/messages.MessageItem'
+        type: array
+    type: object
+  messages.ThreadSummary:
+    properties:
+      friend:
+        $ref: '#/definitions/messages.MessageFriend'
+      lastMessage:
+        $ref: '#/definitions/messages.MessageItem'
+      unreadCount:
+        type: integer
+    type: object
+  messages.TrackMetadata:
+    properties:
+      activity_id:
+        type: string
+      album_art_url:
+        type: string
+      album_name:
+        type: string
+      artist_name:
+        type: string
+      spotify_url:
+        type: string
+      track_id:
+        type: string
+      track_name:
+        type: string
+    type: object
+  notifications.NotificationActor:
+    properties:
+      avatar_id:
+        type: string
+      id:
+        type: string
+      username:
+        type: string
+    type: object
+  notifications.NotificationItem:
+    properties:
+      actor:
+        $ref: '#/definitions/notifications.NotificationActor'
+      body:
+        type: string
+      created_at:
+        type: string
+      entity_id:
+        type: string
+      id:
+        type: string
+      metadata:
+        additionalProperties: {}
+        type: object
+      read_at:
+        type: string
+      title:
+        type: string
+      type:
+        type: string
+    type: object
+  notifications.NotificationListResponse:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/notifications.NotificationItem'
+        type: array
+      unreadCount:
+        type: integer
+    type: object
+  profile.ProfileStats:
+    properties:
+      artistsPlayed:
+        type: integer
+      minutesListened:
+        type: integer
+      topGenre:
+        type: string
+    type: object
+  profile.ProfileTopArtist:
+    properties:
+      genres:
+        items:
+          type: string
+        type: array
+      imageUrl:
+        type: string
+      name:
+        type: string
+      playCount:
+        type: integer
+    type: object
+  profile.ProfileTopTrack:
+    properties:
+      artist:
+        type: string
+      imageUrl:
+        type: string
+      name:
+        type: string
+      playCount:
+        type: integer
+    type: object
+  profile.PublicProfileRelationship:
+    properties:
+      canMessage:
+        type: boolean
+      friendshipId:
+        type: string
+      status:
+        type: string
+    type: object
+  profile.PublicProfileResponse:
+    properties:
+      nowPlaying:
+        $ref: '#/definitions/profile.PublicProfileTrack'
+      recentTracks:
+        items:
+          $ref: '#/definitions/profile.PublicProfileTrack'
+        type: array
+      relationship:
+        $ref: '#/definitions/profile.PublicProfileRelationship'
+      stats:
+        $ref: '#/definitions/profile.PublicProfileStats'
+      topArtists:
+        items:
+          $ref: '#/definitions/profile.ProfileTopArtist'
+        type: array
+      topTracks:
+        items:
+          $ref: '#/definitions/profile.ProfileTopTrack'
+        type: array
+      user:
+        $ref: '#/definitions/profile.PublicProfileUser'
+    type: object
+  profile.PublicProfileStats:
+    properties:
+      artistsPlayed:
+        type: integer
+      minutesListened:
+        type: integer
+      topGenre:
+        type: string
+    type: object
+  profile.PublicProfileTrack:
+    properties:
+      album_art_url:
+        type: string
+      album_name:
+        type: string
+      artist_name:
+        type: string
+      id:
+        type: string
+      is_playing:
+        type: boolean
+      platform:
+        type: string
+      played_at:
+        type: string
+      preview_url:
+        type: string
+      spotify_url:
+        type: string
+      track_id:
+        type: string
+      track_name:
+        type: string
+      user_id:
+        type: string
+    type: object
+  profile.PublicProfileUser:
+    properties:
+      avatar_id:
+        type: string
+      id:
+        type: string
+      user_tag:
+        type: string
+      username:
+        type: string
+    type: object
+  reactions.ReactionType:
+    enum:
+    - love
+    - fire
+    - headphones
+    type: string
+    x-enum-varnames:
+    - reactionLove
+    - reactionFire
+    - reactionHeadphones
+  reactions.commentResponse:
+    properties:
+      avatar_id:
+        type: string
+      content:
+        type: string
+      created_at:
+        type: string
+      id:
+        type: string
+      parent_comment_id:
+        type: string
+      user_id:
+        type: string
+      username:
+        type: string
+    type: object
+  reactions.createCommentRequest:
+    properties:
+      activity_id:
+        type: string
+      content:
+        type: string
+      parent_comment_id:
+        type: string
+    required:
+    - activity_id
+    - content
+    type: object
+  reactions.engagementResponse:
+    properties:
+      commentCount:
+        type: integer
+      reactions:
+        additionalProperties:
+          type: integer
+        type: object
+      userReactions:
+        additionalProperties:
+          type: boolean
+        type: object
+    type: object
+  reactions.toggleReactionRequest:
+    properties:
+      activity_id:
+        type: string
+      reaction_type:
+        $ref: '#/definitions/reactions.ReactionType'
+    required:
+    - activity_id
+    - reaction_type
+    type: object
+  spotify.ActivityItem:
+    properties:
+      album_art_url:
+        type: string
+      album_name:
+        type: string
+      artist_name:
+        type: string
+      avatar_id:
+        type: string
+      id:
+        type: string
+      is_playing:
+        type: boolean
+      platform:
+        type: string
+      preview_url:
+        type: string
+      spotify_url:
+        type: string
+      started_at:
+        type: string
+      track_id:
+        type: string
+      track_name:
+        type: string
+      user_id:
+        type: string
+      username:
+        type: string
+    type: object
+  spotify.ConnectRequest:
+    properties:
+      access_token:
+        type: string
+      expires_in:
+        type: integer
+      refresh_token:
+        type: string
+    required:
+    - access_token
+    - expires_in
+    - refresh_token
+    type: object
+host: localhost:5000
+info:
+  contact: {}
+  description: API documentation for the Chen, a music compatibility and social platform.
+  title: Chen API
+  version: "1.0"
+paths:
+  /activity/feed:
+    get:
+      description: Fetch the user's personalized activity feed from friends and followed
+        users
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/activity.ActivityItem'
+            type: array
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - Bearer: []
+      summary: Get Activity Feed
+      tags:
+      - activity
+  /auth/callback:
+    post:
+      description: OAuth callback endpoint for authentication providers
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Auth Callback
+      tags:
+      - auth
+  /auth/signout:
+    post:
+      description: Sign out the current user
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - Bearer: []
+      summary: Sign Out
+      tags:
+      - auth
+  /auth/user:
+    get:
+      description: Fetch the current authenticated user's profile
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/auth.UserProfile'
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - Bearer: []
+      summary: Get Current User
+      tags:
+      - auth
+  /chen/chat:
+    post:
+      consumes:
+      - application/json
+      description: Send a message to Chen AI and get a music-aware response
+      parameters:
+      - description: User message and conversation history
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/chen.ChatRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/chen.ChatResponse'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - Bearer: []
+      summary: Chat with Chen AI
+      tags:
+      - chen
+  /chen/conversation:
+    get:
+      description: Fetch the Chen AI chat conversation history with music context
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/chen.ConversationResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - Bearer: []
+      summary: Get Conversation History
+      tags:
+      - chen
+  /compatibility:
+    get:
+      description: Check music compatibility with another user (coming soon)
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Get Music Compatibility
+      tags:
+      - compatibility
+  /friends:
+    get:
+      description: Fetch the current user's friend list with current activity and
+        compatibility scores
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/friends.Friend'
+            type: array
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - Bearer: []
+      summary: Get Friends List
+      tags:
+      - friends
+  /friends/accept:
+    post:
+      consumes:
+      - application/json
+      description: Accept a pending friend request
+      parameters:
+      - description: Friendship ID to accept
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/friends.FriendshipActionRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - Bearer: []
+      summary: Accept Friend Request
+      tags:
+      - friends
+  /friends/add:
+    post:
+      consumes:
+      - application/json
+      description: Send a friend request to another user
+      parameters:
+      - description: Username of user to add
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/friends.AddFriendRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - Bearer: []
+      summary: Add Friend
+      tags:
+      - friends
+  /friends/search:
+    get:
+      description: Search for users by username or user_tag
+      parameters:
+      - description: Search query (username or user_tag)
+        in: query
+        name: query
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/friends.SearchResult'
+            type: array
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - Bearer: []
+      summary: Search Users
+      tags:
+      - friends
+  /messages/{friendID}:
+    get:
+      description: Fetch all messages in a conversation with a specific friend
+      parameters:
+      - description: Friend's user ID
+        in: path
+        name: friendID
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/messages.ThreadResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - Bearer: []
+      summary: Get Message Thread
+      tags:
+      - messages
+  /messages/threads:
+    get:
+      description: Fetch all active message threads for the current user
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/messages.ThreadSummary'
+            type: array
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - Bearer: []
+      summary: List Message Threads
+      tags:
+      - messages
+  /notifications:
+    get:
+      description: Fetch all notifications for the current user
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/notifications.NotificationListResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - Bearer: []
+      summary: List Notifications
+      tags:
+      - notifications
+  /notifications/{id}/read:
+    post:
+      description: Mark a specific notification as read
+      parameters:
+      - description: Notification ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - Bearer: []
+      summary: Mark Notification as Read
+      tags:
+      - notifications
+  /notifications/unread-count:
+    get:
+      description: Get the number of unread notifications for the current user
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: integer
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - Bearer: []
+      summary: Get Unread Notification Count
+      tags:
+      - notifications
+  /payments:
+    get:
+      description: Payment system endpoint (coming soon)
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Get Payments Info
+      tags:
+      - payments
+  /profile/stats:
+    get:
+      description: Fetch listening statistics for the current user (minutes listened,
+        artists, top genre)
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/profile.ProfileStats'
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - Bearer: []
+      summary: Get Profile Stats
+      tags:
+      - profile
+  /profile/top-artists:
+    get:
+      description: Fetch the user's most played artists
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/profile.ProfileTopArtist'
+            type: array
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - Bearer: []
+      summary: Get Top Artists
+      tags:
+      - profile
+  /profile/top-tracks:
+    get:
+      description: Fetch the user's most played tracks
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/profile.ProfileTopTrack'
+            type: array
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - Bearer: []
+      summary: Get Top Tracks
+      tags:
+      - profile
+  /profile/users/{userID}:
+    get:
+      description: Fetch a user's public profile with their stats, recent activity,
+        and relationship status
+      parameters:
+      - description: User ID
+        in: path
+        name: userID
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/profile.PublicProfileResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - Bearer: []
+      summary: Get Public User Profile
+      tags:
+      - profile
+  /reactions/comments:
+    post:
+      consumes:
+      - application/json
+      description: Add a comment on an activity
+      parameters:
+      - description: Comment content
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/reactions.createCommentRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/reactions.commentResponse'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - Bearer: []
+      summary: Create Comment
+      tags:
+      - reactions
+  /reactions/comments/{activityID}:
+    get:
+      description: Fetch all comments on a specific activity
+      parameters:
+      - description: Activity ID
+        in: path
+        name: activityID
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/reactions.commentResponse'
+            type: array
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - Bearer: []
+      summary: Get Comments on Activity
+      tags:
+      - reactions
+  /reactions/engagement:
+    get:
+      description: Get comments and reactions counts for multiple activities
+      parameters:
+      - description: Comma-separated list of activity IDs
+        in: query
+        name: activity_ids
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              $ref: '#/definitions/reactions.engagementResponse'
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - Bearer: []
+      summary: Get Engagement Metrics
+      tags:
+      - reactions
+  /reactions/toggle:
+    post:
+      consumes:
+      - application/json
+      description: Add or remove a reaction (love, fire, headphones) on an activity
+      parameters:
+      - description: Activity ID and reaction type (love, fire, headphones)
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/reactions.toggleReactionRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - Bearer: []
+      summary: Toggle Reaction
+      tags:
+      - reactions
+  /spotify/connect:
+    post:
+      consumes:
+      - application/json
+      description: Connect or refresh Spotify connection with access tokens
+      parameters:
+      - description: Spotify connection tokens
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/spotify.ConnectRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - Bearer: []
+      summary: Connect Spotify Account
+      tags:
+      - spotify
+  /spotify/now-playing:
+    get:
+      description: Fetch the currently playing track from user's Spotify
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/spotify.ActivityItem'
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - Bearer: []
+      summary: Get Currently Playing Track
+      tags:
+      - spotify
+  /spotify/recent:
+    get:
+      description: Fetch user's recently played tracks from Spotify
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/spotify.ActivityItem'
+            type: array
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - Bearer: []
+      summary: Get Recent Tracks
+      tags:
+      - spotify
+  /spotify/top-artists:
+    get:
+      description: Fetch user's top artists from Spotify
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              additionalProperties:
+                type: string
+              type: object
+            type: array
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - Bearer: []
+      summary: Get Top Artists
+      tags:
+      - spotify
+  /spotify/top-tracks:
+    get:
+      description: Fetch user's top tracks from Spotify
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/spotify.ActivityItem'
+            type: array
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - Bearer: []
+      summary: Get Top Tracks
+      tags:
+      - spotify
+swagger: "2.0"

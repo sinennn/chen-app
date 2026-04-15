@@ -1,6 +1,13 @@
 package main
 
+// @title           Chen API
+// @version         1.0
+// @description     API documentation for the Chen, a music compatibility and social platform.
+// @host            localhost:8080
+// @BasePath        /api/v1
+
 import (
+	_ "chen/docs"
 	"chen/internal/activity"
 	"chen/internal/auth"
 	"chen/internal/chen"
@@ -16,8 +23,11 @@ import (
 	"log"
 	"net/http"
 	"os"
+
 	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
+	swaggerFiles "github.com/swaggo/files"
+	ginSwagger "github.com/swaggo/gin-swagger"
 )
 
 func main() {
@@ -38,9 +48,9 @@ func main() {
 		go notifications.StartListeningInsightsScheduler()
 	}
 
-		port := os.Getenv("PORT")
+	port := os.Getenv("PORT")
 	if port == "" {
-		port = "8080"
+		port = "5000"
 	}
 
 	router := gin.Default()
@@ -64,6 +74,10 @@ func main() {
 		})
 	})
 
+	// Swagger UI
+	router.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
+	router.GET("/docs/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
+
 	v1 := router.Group("/api/v1")
 	{
 		// Public auth routes (no JWT required)
@@ -72,7 +86,7 @@ func main() {
 		protected := v1.Group("")
 		protected.Use(auth.JWTMiddleware())
 		{
-	
+
 			auth.RegisterProtectedRoutes(protected.Group("/auth"))
 
 			spotify.RegisterRoutes(protected.Group("/spotify"))

@@ -1,6 +1,7 @@
 package profile
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -88,6 +89,14 @@ func RegisterProfileRoutes(rg *gin.RouterGroup) {
 	rg.GET("/users/:userID", getPublicProfile)
 }
 
+// @Summary Get Profile Stats
+// @Description Fetch listening statistics for the current user (minutes listened, artists, top genre)
+// @Tags profile
+// @Produce json
+// @Success 200 {object} ProfileStats
+// @Failure 401 {object} map[string]string
+// @Security Bearer
+// @Router /profile/stats [get]
 func getStats(c *gin.Context) {
 	userID, exists := auth.GetUserFromContext(c)
 	if !exists {
@@ -95,7 +104,7 @@ func getStats(c *gin.Context) {
 		return
 	}
 
-	stats, err := deriveStatsFromListeningActivity(userID)
+	stats, err := deriveStatsFromListeningActivity(c.Request.Context(), userID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch profile stats"})
 		return
@@ -104,7 +113,7 @@ func getStats(c *gin.Context) {
 	c.JSON(http.StatusOK, stats)
 }
 
-func deriveStatsFromListeningActivity(userID string) (ProfileStats, error) {
+func deriveStatsFromListeningActivity(ctx context.Context, userID string) (ProfileStats, error) {
 	stats := ProfileStats{TopGenre: "--"}
 
 	client := supabase.GetClient()
@@ -147,7 +156,7 @@ func deriveStatsFromListeningActivity(userID string) (ProfileStats, error) {
 
 	lastfmClient, lastfmErr := lastfm.NewClientFromEnv()
 	if lastfmErr == nil {
-		if topGenre := deriveTopGenreFromLastFM(lastfmClient, artistCounts); topGenre != "" {
+		if topGenre := deriveTopGenreFromLastFM(ctx, lastfmClient, artistCounts); topGenre != "" {
 			stats.TopGenre = topGenre
 		}
 	} else if !errors.Is(lastfmErr, lastfm.ErrNotConfigured) {
@@ -180,6 +189,14 @@ func estimateListeningDurationMs(row map[string]any) int {
 	return 0
 }
 
+// @Summary Get Top Artists
+// @Description Fetch the user's most played artists
+// @Tags profile
+// @Produce json
+// @Success 200 {array} ProfileTopArtist
+// @Failure 401 {object} map[string]string
+// @Security Bearer
+// @Router /profile/top-artists [get]
 func getTopArtists(c *gin.Context) {
 	userID, exists := auth.GetUserFromContext(c)
 	if !exists {
@@ -233,6 +250,14 @@ func getTopArtists(c *gin.Context) {
 	c.JSON(http.StatusOK, result)
 }
 
+// @Summary Get Top Tracks
+// @Description Fetch the user's most played tracks
+// @Tags profile
+// @Produce json
+// @Success 200 {array} ProfileTopTrack
+// @Failure 401 {object} map[string]string
+// @Security Bearer
+// @Router /profile/top-tracks [get]
 func getTopTracks(c *gin.Context) {
 	userID, exists := auth.GetUserFromContext(c)
 	if !exists {
@@ -298,6 +323,16 @@ func formatGenre(value string) string {
 	return strings.Join(parts, " ")
 }
 
+// @Summary Get Public User Profile
+// @Description Fetch a user's public profile with their stats, recent activity, and relationship status
+// @Tags profile
+// @Produce json
+// @Param userID path string true "User ID"
+// @Success 200 {object} PublicProfileResponse
+// @Failure 401 {object} map[string]string
+// @Failure 404 {object} map[string]string
+// @Security Bearer
+// @Router /profile/users/{userID} [get]
 func getPublicProfile(c *gin.Context) {
 	requestUserID, exists := auth.GetUserFromContext(c)
 	if !exists {
@@ -334,7 +369,7 @@ func getPublicProfile(c *gin.Context) {
 		return
 	}
 
-	stats, err := deriveStatsFromListeningActivity(targetUserID)
+	stats, err := deriveStatsFromListeningActivity(c.Request.Context(), targetUserID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch profile stats"})
 		return

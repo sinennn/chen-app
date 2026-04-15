@@ -93,6 +93,14 @@ func RegisterRoutes(rg *gin.RouterGroup) {
 	rg.POST("/decline", declineFriend)
 }
 
+// @Summary Get Friends List
+// @Description Fetch the current user's friend list with current activity and compatibility scores
+// @Tags friends
+// @Produce json
+// @Success 200 {array} Friend
+// @Failure 401 {object} map[string]string
+// @Security Bearer
+// @Router /friends [get]
 func getFriends(c *gin.Context) {
 	userID, exists := auth.GetUserFromContext(c)
 	if !exists {
@@ -159,6 +167,15 @@ func getFriends(c *gin.Context) {
 	c.JSON(http.StatusOK, friendsList)
 }
 
+// @Summary Search Users
+// @Description Search for users by username or user_tag
+// @Tags friends
+// @Produce json
+// @Param query query string true "Search query (username or user_tag)"
+// @Success 200 {array} SearchResult
+// @Failure 401 {object} map[string]string
+// @Security Bearer
+// @Router /friends/search [get]
 func searchUsers(c *gin.Context) {
 	userID, exists := auth.GetUserFromContext(c)
 	if !exists {
@@ -215,6 +232,14 @@ func searchUsers(c *gin.Context) {
 			AvatarID:           toString(row["avatar_id"]),
 			RelationshipStatus: relationship.Status,
 		})
+		// @Summary Discover Users
+		// @Description Discover new users based on music taste and activity
+		// @Tags friends
+		// @Produce json
+		// @Success 200 {array} DiscoverUser
+		// @Failure 401 {object} map[string]string
+		// @Security Bearer
+		// @Router /friends/discover [get]
 
 		if len(results) == 10 {
 			break
@@ -296,8 +321,16 @@ func getDiscoverUsers(c *gin.Context) {
 			UserTag:            toString(row["user_tag"]),
 			AvatarID:           toString(row["avatar_id"]),
 			RelationshipStatus: relationship.Status,
-			IsOnline:           activity != nil && activity.IsPlaying,
-			CurrentTrack:       activity,
+			// @Summary Get Friend Recommendations
+			// @Description Get recommended friends based on music compatibility and mutual interests
+			// @Tags friends
+			// @Produce json
+			// @Success 200 {array} Recommendation
+			// @Failure 401 {object} map[string]string
+			// @Security Bearer
+			// @Router /friends/recommendations [get]
+			IsOnline:     activity != nil && activity.IsPlaying,
+			CurrentTrack: activity,
 		})
 	}
 
@@ -406,6 +439,17 @@ func getRecommendations(c *gin.Context) {
 	c.JSON(http.StatusOK, recommendations)
 }
 
+// @Summary Add Friend
+// @Description Send a friend request to another user
+// @Tags friends
+// @Accept json
+// @Produce json
+// @Param request body AddFriendRequest true "Username of user to add"
+// @Success 200 {object} map[string]string
+// @Failure 400 {object} map[string]string
+// @Failure 401 {object} map[string]string
+// @Security Bearer
+// @Router /friends/add [post]
 func addFriend(c *gin.Context) {
 	userID, exists := auth.GetUserFromContext(c)
 	if !exists {
@@ -493,7 +537,7 @@ func addFriend(c *gin.Context) {
 	if me, meErr := loadBasicUser(userID); meErr == nil && me.Username != "" {
 		requesterName = me.Username
 	}
-	_ = notifications.CreateNotification(
+	_ = notifications.CreateAndDispatchNotification(
 		friendID,
 		userID,
 		"friend_request",
@@ -504,11 +548,23 @@ func addFriend(c *gin.Context) {
 			"friendshipId": friendshipID,
 			"requesterId":  userID,
 		},
+		true,
 	)
 
 	c.JSON(http.StatusOK, gin.H{"message": "Friend request sent successfully"})
 }
 
+// @Summary Accept Friend Request
+// @Description Accept a pending friend request
+// @Tags friends
+// @Accept json
+// @Produce json
+// @Param request body FriendshipActionRequest true "Friendship ID to accept"
+// @Success 200 {object} map[string]string
+// @Failure 400 {object} map[string]string
+// @Failure 401 {object} map[string]string
+// @Security Bearer
+// @Router /friends/accept [post]
 func acceptFriend(c *gin.Context) {
 	userID, exists := auth.GetUserFromContext(c)
 	if !exists {
@@ -557,7 +613,7 @@ func acceptFriend(c *gin.Context) {
 		if requesterName == "" {
 			requesterName = "Someone"
 		}
-		_ = notifications.CreateNotification(
+		_ = notifications.CreateAndDispatchNotification(
 			requesterID,
 			userID,
 			"friend_accept",
@@ -566,10 +622,24 @@ func acceptFriend(c *gin.Context) {
 			req.FriendshipID,
 			map[string]any{
 				"friendshipId": req.FriendshipID,
-				"friendId":     userID,
+				// @Summary Decline Friend Request
+				// @Description Decline a pending friend request
+				// @Tags friends
+				// @Accept json
+				// @Produce json
+				// @Param request body FriendshipActionRequest true "Friendship ID to decline"
+				// @Success 200 {object} map[string]string
+				// @Failure 400 {object} map[string]string
+				// @Failure 401 {object} map[string]string
+				// @Security Bearer
+				// @Router /friends/decline [post]
+				"friendId": userID,
 			},
+			true,
 		)
 	}
+
+	_ = notifications.MarkFriendRequestNotificationsRead(userID, req.FriendshipID)
 
 	c.JSON(http.StatusOK, gin.H{"message": "Friend request accepted"})
 }
@@ -603,6 +673,8 @@ func declineFriend(c *gin.Context) {
 		return
 	}
 
+	_ = notifications.MarkFriendRequestNotificationsRead(userID, req.FriendshipID)
+
 	c.JSON(http.StatusOK, gin.H{"message": "Friend request declined"})
 }
 
@@ -633,6 +705,14 @@ func getCompatibilityScores(userID string) (map[string]int, error) {
 		user1 := toString(row["user_id_1"])
 		user2 := toString(row["user_id_2"])
 		score, _ := row["score"].(float64)
+		// @Summary Get Pending Friend Requests
+		// @Description Fetch all pending friend requests for the current user
+		// @Tags friends
+		// @Produce json
+		// @Success 200 {array} PendingFriendRequest
+		// @Failure 401 {object} map[string]string
+		// @Security Bearer
+		// @Router /friends/requests [get]
 
 		if user1 == userID {
 			scores[user2] = int(score)

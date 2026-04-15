@@ -63,7 +63,7 @@ func GenerateListeningInsightForUser(userID string, now time.Time) (*Notificatio
 	}
 
 	pick := insights[rand.New(rand.NewSource(now.UnixNano())).Intn(len(insights))]
-	if err := CreateNotification(userID, "", pick.NotificationType, pick.Title, pick.Body, "", pick.Metadata); err != nil {
+	if err := CreateAndDispatchNotification(userID, "", pick.NotificationType, pick.Title, pick.Body, "", pick.Metadata, true); err != nil {
 		return nil, err
 	}
 
@@ -74,7 +74,6 @@ func GenerateListeningInsightForUser(userID string, now time.Time) (*Notificatio
 		Metadata: pick.Metadata,
 	}
 
-	_ = sendPushForUser(userID, pick.Title, pick.Body, pick.Metadata)
 	return item, nil
 }
 
@@ -474,7 +473,7 @@ func buildTopPercentileInsight(client *supabaseapi.Client, userID, artist string
 	}
 
 	raw := client.Rpc("artist_listener_percentile", "", payload)
-	if client.ClientError != nil || strings.TrimSpace(raw) == "" {
+	if strings.TrimSpace(raw) == "" {
 		return nil
 	}
 

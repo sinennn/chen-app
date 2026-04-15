@@ -45,6 +45,16 @@ func RegisterRoutes(rg *gin.RouterGroup) {
 	rg.GET("/recommendations", handleRecommendations)
 }
 
+// @Summary Connect Spotify Account
+// @Description Connect or refresh Spotify connection with access tokens
+// @Tags spotify
+// @Accept json
+// @Produce json
+// @Param request body ConnectRequest true "Spotify connection tokens"
+// @Success 200 {object} map[string]string
+// @Failure 401 {object} map[string]string
+// @Security Bearer
+// @Router /spotify/connect [post]
 func handleConnect(c *gin.Context) {
 	userID, exists := auth.GetUserFromContext(c)
 	if !exists {
@@ -79,6 +89,14 @@ func handleConnect(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "Spotify connected successfully"})
 }
 
+// @Summary Get Currently Playing Track
+// @Description Fetch the currently playing track from user's Spotify
+// @Tags spotify
+// @Produce json
+// @Success 200 {object} ActivityItem
+// @Failure 401 {object} map[string]string
+// @Security Bearer
+// @Router /spotify/now-playing [get]
 func handleNowPlaying(c *gin.Context) {
 	userID, exists := auth.GetUserFromContext(c)
 	if !exists {
@@ -130,6 +148,14 @@ func handleNowPlaying(c *gin.Context) {
 	})
 }
 
+// @Summary Get Recent Tracks
+// @Description Fetch user's recently played tracks from Spotify
+// @Tags spotify
+// @Produce json
+// @Success 200 {array} ActivityItem
+// @Failure 401 {object} map[string]string
+// @Security Bearer
+// @Router /spotify/recent [get]
 func handleRecent(c *gin.Context) {
 	userID, exists := auth.GetUserFromContext(c)
 	if !exists {
@@ -186,6 +212,14 @@ func handleRecent(c *gin.Context) {
 	c.JSON(http.StatusOK, activities)
 }
 
+// @Summary Get Top Tracks
+// @Description Fetch user's top tracks from Spotify
+// @Tags spotify
+// @Produce json
+// @Success 200 {array} ActivityItem
+// @Failure 401 {object} map[string]string
+// @Security Bearer
+// @Router /spotify/top-tracks [get]
 func handleTopTracks(c *gin.Context) {
 	userID, exists := auth.GetUserFromContext(c)
 	if !exists {
@@ -220,6 +254,14 @@ func handleTopTracks(c *gin.Context) {
 	c.JSON(http.StatusOK, tracks)
 }
 
+// @Summary Get Top Artists
+// @Description Fetch user's top artists from Spotify
+// @Tags spotify
+// @Produce json
+// @Success 200 {array} map[string]string
+// @Failure 401 {object} map[string]string
+// @Security Bearer
+// @Router /spotify/top-artists [get]
 func handleTopArtists(c *gin.Context) {
 	userID, exists := auth.GetUserFromContext(c)
 	if !exists {
@@ -265,6 +307,14 @@ func handleTopArtists(c *gin.Context) {
 				Offset: 0,
 			})
 			return
+			// @Summary Get On Repeat Tracks
+			// @Description Fetch user's currently repeating tracks from Spotify
+			// @Tags spotify
+			// @Produce json
+			// @Success 200 {array} ActivityItem
+			// @Failure 401 {object} map[string]string
+			// @Security Bearer
+			// @Router /spotify/on-repeat [get]
 		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch top artists"})
 		return
@@ -299,6 +349,14 @@ func handleOnRepeat(c *gin.Context) {
 		if _, ok := err.(*SpotifyRateLimitError); ok {
 			c.JSON(http.StatusOK, []PlaylistTrack{})
 			return
+			// @Summary Get Recommendations
+			// @Description Get music recommendations based on user's listening history
+			// @Tags spotify
+			// @Produce json
+			// @Success 200 {array} ActivityItem
+			// @Failure 401 {object} map[string]string
+			// @Security Bearer
+			// @Router /spotify/recommendations [get]
 		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch on repeat tracks"})
 		return

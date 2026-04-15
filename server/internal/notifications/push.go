@@ -20,6 +20,11 @@ type pushTokenPayload struct {
 	DeviceID string `json:"device_id"`
 }
 
+type unregisterPushTokenPayload struct {
+	Token    string `json:"token"`
+	DeviceID string `json:"device_id"`
+}
+
 type expoPushMessage struct {
 	To    string         `json:"to"`
 	Title string         `json:"title,omitempty"`
@@ -52,17 +57,44 @@ func registerPushToken(userID string, payload pushTokenPayload) error {
 	}
 
 	record := map[string]any{
-		"user_id":        userID,
+		"user_id":         userID,
 		"expo_push_token": token,
-		"platform":       strings.TrimSpace(payload.Platform),
-		"device_id":      strings.TrimSpace(payload.DeviceID),
-		"last_seen_at":   time.Now().UTC().Format(time.RFC3339),
-		"updated_at":     time.Now().UTC().Format(time.RFC3339),
+		"platform":        strings.TrimSpace(payload.Platform),
+		"device_id":       strings.TrimSpace(payload.DeviceID),
+		"last_seen_at":    time.Now().UTC().Format(time.RFC3339),
+		"updated_at":      time.Now().UTC().Format(time.RFC3339),
 	}
 
 	_, _, err := client.From("user_push_tokens").
 		Upsert(record, "expo_push_token", "minimal", "").
 		Execute()
+	return err
+}
+
+func unregisterPushToken(userID string, payload unregisterPushTokenPayload) error {
+	client := supabase.GetClient()
+	if client == nil {
+		return fmt.Errorf("database connection failed")
+	}
+
+	token := strings.TrimSpace(payload.Token)
+	deviceID := strings.TrimSpace(payload.DeviceID)
+	if token == "" && deviceID == "" {
+		return fmt.Errorf("push token or device id required")
+	}
+
+	query := client.From("user_push_tokens").
+		Delete("minimal", "").
+		Eq("user_id", userID)
+
+	if token != "" {
+		query = query.Eq("expo_push_token", token)
+	}
+	if deviceID != "" {
+		query = query.Eq("device_id", deviceID)
+	}
+
+	_, _, err := query.Execute()
 	return err
 }
 

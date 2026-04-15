@@ -17,10 +17,10 @@ import (
 )
 
 type SendMessageRequest struct {
-	Content         string `json:"content"`
-	MessageType     string `json:"message_type"`
-	AudioURL        string `json:"audio_url"`
-	AudioDurationMs int    `json:"audio_duration_ms"`
+	Content         string         `json:"content"`
+	MessageType     string         `json:"message_type"`
+	AudioURL        string         `json:"audio_url"`
+	AudioDurationMs int            `json:"audio_duration_ms"`
 	TrackMetadata   *TrackMetadata `json:"track_metadata"`
 }
 
@@ -41,17 +41,17 @@ type TrackMetadata struct {
 }
 
 type MessageItem struct {
-	ID              string `json:"id"`
-	SenderID        string `json:"sender_id"`
-	RecipientID     string `json:"recipient_id"`
-	Content         string `json:"content"`
-	MessageType     string `json:"message_type"`
-	AudioURL        string `json:"audio_url,omitempty"`
-	AudioDurationMs int    `json:"audio_duration_ms,omitempty"`
+	ID              string         `json:"id"`
+	SenderID        string         `json:"sender_id"`
+	RecipientID     string         `json:"recipient_id"`
+	Content         string         `json:"content"`
+	MessageType     string         `json:"message_type"`
+	AudioURL        string         `json:"audio_url,omitempty"`
+	AudioDurationMs int            `json:"audio_duration_ms,omitempty"`
 	TrackMetadata   *TrackMetadata `json:"track_metadata,omitempty"`
-	CreatedAt       string `json:"created_at"`
-	ReadAt          string `json:"read_at,omitempty"`
-	IsMine          bool   `json:"is_mine"`
+	CreatedAt       string         `json:"created_at"`
+	ReadAt          string         `json:"read_at,omitempty"`
+	IsMine          bool           `json:"is_mine"`
 }
 
 type ThreadSummary struct {
@@ -72,6 +72,14 @@ func RegisterRoutes(rg *gin.RouterGroup) {
 	rg.POST("/:friendID/read", markThreadRead)
 }
 
+// @Summary List Message Threads
+// @Description Fetch all active message threads for the current user
+// @Tags messages
+// @Produce json
+// @Success 200 {array} ThreadSummary
+// @Failure 401 {object} map[string]string
+// @Security Bearer
+// @Router /messages/threads [get]
 func listThreads(c *gin.Context) {
 	userID, exists := auth.GetUserFromContext(c)
 	if !exists {
@@ -164,6 +172,15 @@ func listThreads(c *gin.Context) {
 	c.JSON(http.StatusOK, threads)
 }
 
+// @Summary Get Message Thread
+// @Description Fetch all messages in a conversation with a specific friend
+// @Tags messages
+// @Produce json
+// @Param friendID path string true "Friend's user ID"
+// @Success 200 {object} ThreadResponse
+// @Failure 401 {object} map[string]string
+// @Security Bearer
+// @Router /messages/{friendID} [get]
 func getThread(c *gin.Context) {
 	userID, exists := auth.GetUserFromContext(c)
 	if !exists {
@@ -191,6 +208,18 @@ func getThread(c *gin.Context) {
 	messages, err := loadThreadMessages(userID, friendID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": describeMessageDBError(err, "Failed to load conversation")})
+		// @Summary Send Message
+		// @Description Send a message to a friend (text, audio, or track share)
+		// @Tags messages
+		// @Accept json
+		// @Produce json
+		// @Param friendID path string true "Friend's user ID"
+		// @Param request body SendMessageRequest true "Message content"
+		// @Success 200 {object} MessageItem
+		// @Failure 400 {object} map[string]string
+		// @Failure 401 {object} map[string]string
+		// @Security Bearer
+		// @Router /messages/{friendID} [post]
 		return
 	}
 
@@ -309,7 +338,7 @@ func sendMessage(c *gin.Context) {
 		if len(preview) > 88 {
 			preview = preview[:85] + "..."
 		}
-		_ = notifications.CreateNotification(
+		_ = notifications.CreateAndDispatchNotification(
 			friendID,
 			userID,
 			"message",
@@ -317,11 +346,21 @@ func sendMessage(c *gin.Context) {
 			preview,
 			message.ID,
 			map[string]any{
+				// @Summary Mark Thread as Read
+				// @Description Mark all messages in a thread as read
+				// @Tags messages
+				// @Produce json
+				// @Param friendID path string true "Friend's user ID"
+				// @Success 200 {object} map[string]string
+				// @Failure 401 {object} map[string]string
+				// @Security Bearer
+				// @Router /messages/{friendID}/read [post]
 				"friendId":    userID,
 				"messageId":   message.ID,
 				"messageType": messageType,
 				"trackName":   trackNameFromMetadata(trackMetadata),
 			},
+			true,
 		)
 	}
 
@@ -356,6 +395,8 @@ func markThreadRead(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to mark thread as read"})
 		return
 	}
+
+	_ = notifications.MarkMessageNotificationsRead(userID, friendID)
 
 	c.JSON(http.StatusOK, gin.H{"message": "Thread marked as read"})
 }

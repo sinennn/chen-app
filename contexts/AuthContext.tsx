@@ -1,5 +1,5 @@
 import { configureGoogleSignIn } from '@/lib/auth';
-import { syncPushToken } from '@/lib/push-notifications';
+import { syncPushToken, unregisterPushToken } from '@/lib/push-notifications';
 import AsyncStorage from '@/lib/storage';
 import { supabase } from '@/lib/supabase';
 import { Session, User } from '@supabase/supabase-js';
@@ -224,13 +224,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (!session?.user) return;
 
-    syncPushToken().catch((error) => {
+    syncPushToken({ force: true }).catch((error) => {
       console.warn('AuthContext: Push token sync failed', error);
     });
   }, [session?.user?.id]);
 
   const signOut = async () => {
     try {
+      try {
+        await unregisterPushToken();
+      } catch (error) {
+        console.warn('AuthContext: Push token unregister failed', error);
+      }
     
       const { error } = await supabase.auth.signOut();
       
@@ -258,6 +263,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setUser(null);
       setSession(null);
       profileFetchRef.current = null;
+      await saveCachedProfile(null);
       
       import('expo-router').then(({ router }) => {
         router.replace('/(auth)/signup');

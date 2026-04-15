@@ -37,6 +37,14 @@ func RegisterRoutes(rg *gin.RouterGroup) {
 	rg.GET("/feed", getFeed)
 }
 
+// @Summary Get Activity Feed
+// @Description Fetch the user's personalized activity feed from friends and followed users
+// @Tags activity
+// @Produce json
+// @Success 200 {array} ActivityItem
+// @Failure 401 {object} map[string]string
+// @Security Bearer
+// @Router /activity/feed [get]
 func getFeed(c *gin.Context) {
 	userID, exists := c.Get("user_id")
 	if !exists {

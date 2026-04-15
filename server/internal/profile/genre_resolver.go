@@ -2,6 +2,10 @@ package profile
 
 import (
 	"chen/internal/lastfm"
+	"context"
+	"fmt"
+	"log"
+	"os"
 	"sort"
 	"strings"
 )
@@ -11,28 +15,71 @@ type weightedArtist struct {
 	Plays int
 }
 
-func deriveTopGenreFromLastFM(client *lastfm.Client, artistCounts map[string]int) string {
+type genreScoreUpdate struct {
+	Tag    string
+	Genre  string
+	Reward int
+	Added  int
+}
+
+var genreResolverLogger = log.New(os.Stdout, "[profile.genre] ", log.LstdFlags|log.Lmicroseconds)
+
+func deriveTopGenreFromLastFM(ctx context.Context, client *lastfm.Client, artistCounts map[string]int) string {
 	if client == nil || len(artistCounts) == 0 {
+		genreResolverLogger.Printf(
+			"skip client_nil=%v artist_count=%d",
+			client == nil,
+			len(artistCounts),
+		)
 		return ""
 	}
 
 	rankedArtists := rankArtistsByPlayCount(artistCounts)
 	if len(rankedArtists) == 0 {
+		genreResolverLogger.Printf("skip reason=no_ranked_artists")
 		return ""
 	}
 
+	selectedArtists := rankedArtists[:min(len(rankedArtists), 10)]
 	genreScores := make(map[string]int)
+	genreResolverLogger.Printf(
+		"start ranked_artists=%d selected_artists=%d candidates=%s",
+		len(rankedArtists),
+		len(selectedArtists),
+		formatWeightedArtistsForLog(selectedArtists),
+	)
 
-	for _, artist := range rankedArtists[:min(len(rankedArtists), 10)] {
-		tags, err := client.GetArtistTopTags(artist.Name)
+	for _, artist := range selectedArtists {
+		genreResolverLogger.Printf("artist=%q plays=%d fetching_tags", artist.Name, artist.Plays)
+
+		tags, err := client.GetArtistTopTags(ctx, artist.Name)
 		if err != nil {
+			genreResolverLogger.Printf("artist=%q plays=%d tag_fetch_error=%v", artist.Name, artist.Plays, err)
 			continue
 		}
 
-		addResolvedGenreScores(genreScores, artist.Plays, tags)
+		updates := addResolvedGenreScores(genreScores, artist.Plays, tags)
+		topGenre, topScore := highestScoringGenreWithScore(genreScores)
+		genreResolverLogger.Printf(
+			"artist=%q plays=%d tags=%v resolved=%s current_top=%q current_score=%d",
+			artist.Name,
+			artist.Plays,
+			tags,
+			formatGenreScoreUpdatesForLog(updates),
+			topGenre,
+			topScore,
+		)
 	}
 
-	return highestScoringGenre(genreScores)
+	topGenre, topScore := highestScoringGenreWithScore(genreScores)
+	genreResolverLogger.Printf(
+		"final genre=%q score=%d scores=%s",
+		topGenre,
+		topScore,
+		formatGenreScoresForLog(genreScores),
+	)
+
+	return topGenre
 }
 
 func rankArtistsByPlayCount(artistCounts map[string]int) []weightedArtist {
@@ -74,9 +121,10 @@ func normalizeLastFMGenreTag(value string) string {
 	return ""
 }
 
-func addResolvedGenreScores(genreScores map[string]int, plays int, tags []string) {
+func addResolvedGenreScores(genreScores map[string]int, plays int, tags []string) []genreScoreUpdate {
 	seenGenres := make(map[string]struct{})
 	reward := 5
+	updates := make([]genreScoreUpdate, 0, len(tags))
 
 	for _, tag := range tags {
 		genre := normalizeLastFMGenreTag(tag)
@@ -88,14 +136,28 @@ func addResolvedGenreScores(genreScores map[string]int, plays int, tags []string
 		}
 
 		seenGenres[genre] = struct{}{}
-		genreScores[genre] += plays * reward
+		added := plays * reward
+		genreScores[genre] += added
+		updates = append(updates, genreScoreUpdate{
+			Tag:    tag,
+			Genre:  genre,
+			Reward: reward,
+			Added:  added,
+		})
 		if reward > 1 {
 			reward--
 		}
 	}
+
+	return updates
 }
 
 func highestScoringGenre(genreScores map[string]int) string {
+	topGenre, _ := highestScoringGenreWithScore(genreScores)
+	return topGenre
+}
+
+func highestScoringGenreWithScore(genreScores map[string]int) (string, int) {
 	topGenre := ""
 	topScore := 0
 	for genre, score := range genreScores {
@@ -104,7 +166,7 @@ func highestScoringGenre(genreScores map[string]int) string {
 			topGenre = genre
 		}
 	}
-	return topGenre
+	return topGenre, topScore
 }
 
 func isNoiseLastFMTag(value string) bool {
@@ -137,6 +199,61 @@ func normalizeLastFMText(value string) string {
 	return strings.Join(strings.Fields(value), " ")
 }
 
+func formatWeightedArtistsForLog(artists []weightedArtist) string {
+	parts := make([]string, 0, len(artists))
+	for _, artist := range artists {
+		parts = append(parts, fmt.Sprintf("%s(%d)", artist.Name, artist.Plays))
+	}
+
+	return strings.Join(parts, ", ")
+}
+
+func formatGenreScoreUpdatesForLog(updates []genreScoreUpdate) string {
+	if len(updates) == 0 {
+		return "none"
+	}
+
+	parts := make([]string, 0, len(updates))
+	for _, update := range updates {
+		parts = append(
+			parts,
+			fmt.Sprintf("%s+=%d(tag=%q reward=%d)", update.Genre, update.Added, update.Tag, update.Reward),
+		)
+	}
+
+	return strings.Join(parts, ", ")
+}
+
+func formatGenreScoresForLog(genreScores map[string]int) string {
+	if len(genreScores) == 0 {
+		return "none"
+	}
+
+	type genreScore struct {
+		genre string
+		score int
+	}
+
+	scores := make([]genreScore, 0, len(genreScores))
+	for genre, score := range genreScores {
+		scores = append(scores, genreScore{genre: genre, score: score})
+	}
+
+	sort.SliceStable(scores, func(i, j int) bool {
+		if scores[i].score != scores[j].score {
+			return scores[i].score > scores[j].score
+		}
+		return scores[i].genre < scores[j].genre
+	})
+
+	parts := make([]string, 0, len(scores))
+	for _, score := range scores {
+		parts = append(parts, fmt.Sprintf("%s=%d", score.genre, score.score))
+	}
+
+	return strings.Join(parts, ", ")
+}
+
 var exactLastFMGenreAliases = map[string]string{
 	"alte":             "Alté",
 	"afrobeats":        "Afrobeats",
@@ -148,6 +265,7 @@ var exactLastFMGenreAliases = map[string]string{
 	"afro soul":        "Afrobeats",
 	"afro and b":       "Afrobeats",
 	"nigerian drill":   "Nigerian Drill",
+	"rage rap":         "Rage Rap",
 	"hip hop":          "Hip-Hop",
 	"hiphop":           "Hip-Hop",
 	"rap":              "Hip-Hop",

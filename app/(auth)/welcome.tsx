@@ -1,13 +1,22 @@
+
 import { useRouter } from 'expo-router';
 import { useRef, useState } from 'react';
 import {
+  //@ts-ignore
   Dimensions,
+  //@ts-ignore
   Image,
+  //@ts-ignore
   NativeScrollEvent,
+  //@ts-ignore
   NativeSyntheticEvent,
+  //@ts-ignore
   Pressable,
+  //@ts-ignore
   ScrollView,
+  //@ts-ignore
   Text,
+  //@ts-ignore
   View
 } from 'react-native';
 
@@ -168,9 +177,10 @@ export default function WelcomeScreen() {
               )}
 
               <Pressable onPress={onSecondary} className="items-center pb-6">
-                <Text className="text-sm font-semibold" style={{ color: 'rgba(255,255,255,0.75)' }}>
+                {/* <Text className="text-sm font-semibold" style={{ color: 'rgba(255,255,255,0.75)' }}>
                   I already have an account
-                </Text>
+                </Text> */}
+                <View className="pt-5"/>
               </Pressable>
             </View>
           </View>
