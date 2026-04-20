@@ -4,12 +4,75 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"net/http"
+	"net/url"
+	"os"
+	"strings"
 	"time"
 
 	"chen/pkg/supabase"
 )
 
 var ErrNoSpotifyConnection = errors.New("spotify connection not found")
+
+// ExchangeAuthorizationCode exchanges a Spotify OAuth authorization code for
+// access and refresh tokens using the server-side client credentials.
+// The client secret never leaves the server.
+func ExchangeAuthorizationCode(code, redirectURI string) (*TokenResponse, error) {
+	clientID := os.Getenv("SPOTIFY_CLIENT_ID")
+	clientSecret := os.Getenv("SPOTIFY_CLIENT_SECRET")
+	if clientID == "" || clientSecret == "" {
+		return nil, fmt.Errorf("spotify client credentials not configured on server")
+	}
+
+	form := url.Values{}
+	form.Set("grant_type", "authorization_code")
+	form.Set("code", code)
+	form.Set("redirect_uri", redirectURI)
+
+	req, err := http.NewRequest(http.MethodPost, "https://accounts.spotify.com/api/token", strings.NewReader(form.Encode()))
+	if err != nil {
+		return nil, fmt.Errorf("failed to build spotify token request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.SetBasicAuth(clientID, clientSecret)
+
+	httpClient := &http.Client{Timeout: 15 * time.Second}
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("spotify token request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read spotify token response: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		// Try to surface Spotify's own error description
+		var spotifyErr struct {
+			Error            string `json:"error"`
+			ErrorDescription string `json:"error_description"`
+		}
+		if jsonErr := json.Unmarshal(body, &spotifyErr); jsonErr == nil && spotifyErr.ErrorDescription != "" {
+			return nil, fmt.Errorf("spotify token exchange: %s", spotifyErr.ErrorDescription)
+		}
+		return nil, fmt.Errorf("spotify token exchange failed with status %d", resp.StatusCode)
+	}
+
+	var token TokenResponse
+	if err := json.Unmarshal(body, &token); err != nil {
+		return nil, fmt.Errorf("failed to parse spotify token response: %w", err)
+	}
+
+	if token.AccessToken == "" {
+		return nil, fmt.Errorf("spotify returned empty access token")
+	}
+
+	return &token, nil
+}
 
 type Connection struct {
 	UserID       string

@@ -12,6 +12,9 @@ export interface UserProfile {
   user_tag?: string;
   avatar_id: string;
   is_premium: boolean;
+  theme_preference?: string;
+  referral_code?: string;
+  onboarding_completed_at?: string;
   created_at: string;
 }
 
@@ -68,6 +71,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       avatar_id: isNonEmpty(incoming.avatar_id) ? incoming.avatar_id : cached.avatar_id,
       email: isNonEmpty(incoming.email) ? incoming.email : cached.email,
       created_at: isNonEmpty(incoming.created_at) ? incoming.created_at : cached.created_at,
+      theme_preference: isNonEmpty(incoming.theme_preference) ? incoming.theme_preference : cached.theme_preference,
+      referral_code: isNonEmpty(incoming.referral_code) ? incoming.referral_code : cached.referral_code,
+      onboarding_completed_at: isNonEmpty(incoming.onboarding_completed_at)
+        ? incoming.onboarding_completed_at
+        : cached.onboarding_completed_at,
     };
   };
 
@@ -112,11 +120,38 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     const request = (async () => {
       try {
-        const { data, error } = await supabase
-          .from('users')
-          .select('id, email, username, user_tag, avatar_id, is_premium, created_at')
-          .eq('id', userId)
-          .single();
+        const fetchProfile = async (selection: string) =>
+          supabase
+            .from('users')
+            .select(selection)
+            .eq('id', userId)
+            .single();
+
+        let { data, error } = await fetchProfile(
+          'id, email, username, user_tag, avatar_id, is_premium, theme_preference, referral_code, onboarding_completed_at, created_at'
+        );
+
+        const missingReferralColumns =
+          error?.code === '42703' ||
+          (typeof error?.message === 'string' &&
+            (error.message.includes('referral_code') ||
+              error.message.includes('theme_preference') ||
+              error.message.includes('onboarding_completed_at')));
+
+        if (missingReferralColumns) {
+          const fallback = await fetchProfile(
+            'id, email, username, user_tag, avatar_id, is_premium, created_at'
+          );
+          data = fallback.data
+            ? {
+                ...fallback.data,
+                theme_preference: 'default',
+                referral_code: '',
+                onboarding_completed_at: '',
+              }
+            : fallback.data;
+          error = fallback.error;
+        }
 
         if (error) {
           // If user doesn't exist in users table, create them
@@ -131,13 +166,43 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 username: '',
                 avatar_id: '',
                 is_premium: false,
+                theme_preference: 'default',
                 created_at: new Date().toISOString(),
               };
-              const { data: createdUser, error: createError } = await supabase
+              let { data: createdUser, error: createError } = await supabase
                 .from('users')
                 .insert(newUser)
                 .select()
                 .single();
+
+              const missingThemeColumn =
+                createError?.code === '42703' ||
+                (typeof createError?.message === 'string' && createError.message.includes('theme_preference'));
+
+              if (missingThemeColumn) {
+                const fallbackCreate = await supabase
+                  .from('users')
+                  .insert({
+                    id: user.id,
+                    email: user.email || '',
+                    username: '',
+                    avatar_id: '',
+                    is_premium: false,
+                    created_at: new Date().toISOString(),
+                  })
+                  .select()
+                  .single();
+
+                createdUser = fallbackCreate.data
+                  ? {
+                      ...fallbackCreate.data,
+                      theme_preference: 'default',
+                      referral_code: '',
+                      onboarding_completed_at: '',
+                    }
+                  : fallbackCreate.data;
+                createError = fallbackCreate.error;
+              }
 
               if (createError) {
                 console.error('AuthContext: Error creating user profile:', createError);

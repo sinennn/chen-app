@@ -3,6 +3,7 @@ package chen
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -78,15 +79,15 @@ func getConversation(c *gin.Context) {
 
 	messages, err := loadConversationMessages(client, userID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to load conversation"})
-		return
+		fmt.Printf("Chen conversation load failed for user %s: %v\n", userID, err)
+		messages = []ConversationMessage{}
 	}
 
 	if len(messages) == 0 {
 		context, err := buildMusicContext(client, userID)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to load conversation"})
-			return
+			fmt.Printf("Chen intro context load failed for user %s: %v\n", userID, err)
+			context = defaultMusicContext()
 		}
 
 		messages = []ConversationMessage{
@@ -138,16 +139,16 @@ func handleChat(c *gin.Context) {
 
 	context, err := buildMusicContext(client, userID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to build Chen context"})
-		return
+		fmt.Printf("Chen context build failed for user %s: %v\n", userID, err)
+		context = defaultMusicContext()
 	}
 
 	history := sanitizeConversationMessages(req.History)
 	if len(history) == 0 {
 		history, err = loadConversationMessages(client, userID)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to load conversation history"})
-			return
+			fmt.Printf("Chen history load failed for user %s: %v\n", userID, err)
+			history = []ConversationMessage{}
 		}
 	}
 
@@ -255,8 +256,8 @@ func handleChat(c *gin.Context) {
 	c.JSON(http.StatusOK, ChatResponse{Reply: reply})
 }
 
-func buildMusicContext(client *gosupabase.Client, userID string) (musicContext, error) {
-	context := musicContext{
+func defaultMusicContext() musicContext {
+	return musicContext{
 		Username:          "you",
 		NowPlaying:        "not playing anything right now",
 		RecentTracks:      "none",
@@ -268,6 +269,10 @@ func buildMusicContext(client *gosupabase.Client, userID string) (musicContext, 
 		HasFriendActivity: false,
 		HasTasteProfile:   false,
 	}
+}
+
+func buildMusicContext(client *gosupabase.Client, userID string) (musicContext, error) {
+	context := defaultMusicContext()
 
 	userData, _, err := client.From("users").
 		Select("username", "", false).
@@ -343,8 +348,7 @@ func buildMusicContext(client *gosupabase.Client, userID string) (musicContext, 
 			listening_activity.id,
 			listening_activity.track_name,
 			listening_activity.artist_name,
-			listening_activity.user_id,
-			users!inner(username)
+			listening_activity.user_id
 		`
 		friendsData, _, err := client.From("listening_activity").
 			Select(friendsQuery, "", false).
@@ -356,6 +360,11 @@ func buildMusicContext(client *gosupabase.Client, userID string) (musicContext, 
 		if err == nil {
 			var activities []map[string]interface{}
 			if json.Unmarshal(friendsData, &activities) == nil && len(activities) > 0 {
+				usernamesByID, usernameErr := loadUsernamesByID(client, friendIDs)
+				if usernameErr != nil {
+					fmt.Printf("Chen friend username lookup failed for user %s: %v\n", userID, usernameErr)
+				}
+
 				friendsListening := make([]string, 0, len(activities))
 				for _, activity := range activities {
 					track := toString(activity["track_name"])
@@ -364,12 +373,7 @@ func buildMusicContext(client *gosupabase.Client, userID string) (musicContext, 
 						continue
 					}
 
-					users, ok := activity["users"].(map[string]interface{})
-					if !ok {
-						continue
-					}
-
-					username := toString(users["username"])
+					username := usernamesByID[toString(activity["user_id"])]
 					if username == "" {
 						continue
 					}
@@ -382,7 +386,11 @@ func buildMusicContext(client *gosupabase.Client, userID string) (musicContext, 
 					context.HasFriendActivity = true
 				}
 			}
+		} else {
+			fmt.Printf("Chen friend activity lookup failed for user %s: %v\n", userID, err)
 		}
+	} else if friendErr != nil {
+		fmt.Printf("Chen friend lookup failed for user %s: %v\n", userID, friendErr)
 	}
 
 	spotifyClient, _, spotifyErr := spotify.GetAuthorizedClient(userID)
@@ -393,6 +401,8 @@ func buildMusicContext(client *gosupabase.Client, userID string) (musicContext, 
 				context.TopArtists = summary
 				context.HasTasteProfile = true
 			}
+		} else {
+			fmt.Printf("Chen top artists lookup failed for user %s: %v\n", userID, artistsErr)
 		}
 
 		topTracks, tracksErr := spotifyClient.GetTopTracks("short_term")
@@ -401,9 +411,11 @@ func buildMusicContext(client *gosupabase.Client, userID string) (musicContext, 
 				context.TopTracks = summary
 				context.HasTasteProfile = true
 			}
+		} else {
+			fmt.Printf("Chen top tracks lookup failed for user %s: %v\n", userID, tracksErr)
 		}
-	} else if !strings.Contains(strings.ToLower(spotifyErr.Error()), "spotify connection not found") && !spotify.IsRateLimitError(spotifyErr) {
-		return context, spotifyErr
+	} else if spotifyErr != nil && !errors.Is(spotifyErr, spotify.ErrNoSpotifyConnection) && !spotify.IsRateLimitError(spotifyErr) {
+		fmt.Printf("Chen Spotify context skipped for user %s: %v\n", userID, spotifyErr)
 	}
 
 	return context, nil
@@ -524,10 +536,17 @@ func loadConversationMessages(client *gosupabase.Client, userID string) ([]Conve
 	if err != nil {
 		return nil, err
 	}
+	if len(data) == 0 || strings.TrimSpace(string(data)) == "null" {
+		return []ConversationMessage{}, nil
+	}
 
 	var rows []map[string]interface{}
 	if err := json.Unmarshal(data, &rows); err != nil {
-		return nil, err
+		var row map[string]interface{}
+		if singleErr := json.Unmarshal(data, &row); singleErr != nil {
+			return nil, err
+		}
+		return normalizeStoredMessages(row["messages"]), nil
 	}
 
 	if len(rows) == 0 {
@@ -572,7 +591,53 @@ func sanitizeConversationMessages(messages []ConversationMessage) []Conversation
 	return sanitized
 }
 
+func loadUsernamesByID(client *gosupabase.Client, userIDs []string) (map[string]string, error) {
+	if len(userIDs) == 0 {
+		return map[string]string{}, nil
+	}
+
+	data, _, err := client.From("users").
+		Select("id,username", "", false).
+		In("id", userIDs).
+		Execute()
+	if err != nil {
+		return nil, err
+	}
+
+	var rows []map[string]interface{}
+	if err := json.Unmarshal(data, &rows); err != nil {
+		return nil, err
+	}
+
+	usernamesByID := make(map[string]string, len(rows))
+	for _, row := range rows {
+		id := strings.TrimSpace(toString(row["id"]))
+		username := strings.TrimSpace(toString(row["username"]))
+		if id == "" || username == "" {
+			continue
+		}
+		usernamesByID[id] = username
+	}
+
+	return usernamesByID, nil
+}
+
 func normalizeStoredMessages(raw interface{}) []ConversationMessage {
+	switch typed := raw.(type) {
+	case string:
+		var decoded interface{}
+		if err := json.Unmarshal([]byte(typed), &decoded); err != nil {
+			return []ConversationMessage{}
+		}
+		return normalizeStoredMessages(decoded)
+	case []byte:
+		var decoded interface{}
+		if err := json.Unmarshal(typed, &decoded); err != nil {
+			return []ConversationMessage{}
+		}
+		return normalizeStoredMessages(decoded)
+	}
+
 	rawMessages, ok := raw.([]interface{})
 	if !ok {
 		return []ConversationMessage{}

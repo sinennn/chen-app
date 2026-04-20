@@ -9,15 +9,16 @@ package main
 import (
 	_ "chen/docs"
 	"chen/internal/activity"
+	"chen/internal/admin"
 	"chen/internal/auth"
 	"chen/internal/chen"
 	"chen/internal/compatibility"
 	"chen/internal/friends"
 	"chen/internal/messages"
 	"chen/internal/notifications"
-	"chen/internal/payments"
 	"chen/internal/profile"
 	"chen/internal/reactions"
+	"chen/internal/referrals"
 	"chen/internal/spotify"
 	"chen/pkg/supabase"
 	"log"
@@ -95,12 +96,17 @@ func main() {
 			profile.RegisterProfileRoutes(protected.Group("/profile"))
 			compatibility.RegisterRoutes(protected.Group("/compatibility"))
 			chen.RegisterRoutes(protected.Group("/chen"))
-			payments.RegisterRoutes(protected.Group("/payments"))
+			referrals.RegisterRoutes(protected.Group("/referrals"))
 			notifications.RegisterRoutes(protected.Group("/notifications"))
 			messages.RegisterRoutes(protected.Group("/messages"))
 			reactions.RegisterRoutes(protected.Group("/reactions"))
 		}
 	}
+
+	// Admin endpoints — protected by X-Admin-Secret header, outside /api/v1.
+	adminGroup := router.Group("/admin")
+	adminGroup.Use(admin.AdminMiddleware())
+	admin.RegisterRoutes(adminGroup)
 
 	log.Printf("Server starting on port %s", port)
 	if err := router.Run(":" + port); err != nil {

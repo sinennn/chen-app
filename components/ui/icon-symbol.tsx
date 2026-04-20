@@ -31,6 +31,7 @@ const MAPPING = {
   'mic.fill': 'mic',
   'stop.fill': 'stop',
   'message.fill': 'chat',
+  'lock.fill': 'lock',
   // Additional symbols for Chen app tabs
   'flame.fill': 'whatshot',
   'person.2.fill': 'group',

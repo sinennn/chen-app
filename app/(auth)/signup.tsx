@@ -1,5 +1,6 @@
-import { useRouter } from 'expo-router';
-import { useState } from 'react';
+import { storePendingReferral } from '@/lib/referrals';
+import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useEffect, useState } from 'react';
 import {
   //@ts-ignore
   //signup
@@ -28,11 +29,21 @@ import { ActivityIndicator } from 'react-native';
 
 export default function SignupScreen() {
   const router = useRouter();
+  const params = useLocalSearchParams<{ referral_code?: string; perk_key?: string }>();
   const [agree, setAgree] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
   const [appleLoading, setAppleLoading] = useState(false);
 
   const isFormValid = agree;
+
+  useEffect(() => {
+    storePendingReferral({
+      referral_code: params.referral_code,
+      perk_key: params.perk_key as any,
+    }).catch((error) => {
+      console.error('Signup: Failed to store pending referral', error);
+    });
+  }, [params.perk_key, params.referral_code]);
 
   const handleGoogleSignUp = async () => {
     if (!isFormValid) {
@@ -102,6 +113,24 @@ export default function SignupScreen() {
           >
             Connect your music world and see what your friends are listening to in real time.
           </Text>
+
+          {params.referral_code && params.perk_key ? (
+            <View
+              style={{
+                marginBottom: 20,
+                borderRadius: 18,
+                paddingHorizontal: 14,
+                paddingVertical: 12,
+                backgroundColor: 'rgba(232,100,10,0.12)',
+                borderWidth: 1,
+                borderColor: 'rgba(232,100,10,0.22)',
+              }}
+            >
+              <Text style={{ color: Colors.textPrimary, fontSize: 13, fontWeight: '600', lineHeight: 19 }}>
+                Finish onboarding from this invite and your friend unlocks a feature.
+              </Text>
+            </View>
+          ) : null}
 
   <View className="pt-[10px]">
             <Pressable

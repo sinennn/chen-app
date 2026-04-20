@@ -20,7 +20,7 @@ protected:
   NativeWorkletsModuleCxxSpecJSI(std::shared_ptr<CallInvoker> jsInvoker);
 
 public:
-  virtual bool installTurboModule(jsi::Runtime &rt) = 0;
+  virtual bool installTurboModule(jsi::Runtime &rt, bool bundleModeEnabled) = 0;
 
 };
 
@@ -51,13 +51,13 @@ private:
 
     }
 
-    bool installTurboModule(jsi::Runtime &rt) override {
+    bool installTurboModule(jsi::Runtime &rt, bool bundleModeEnabled) override {
       static_assert(
-          bridging::getParameterCount(&T::installTurboModule) == 1,
-          "Expected installTurboModule(...) to have 1 parameters");
+          bridging::getParameterCount(&T::installTurboModule) == 2,
+          "Expected installTurboModule(...) to have 2 parameters");
 
       return bridging::callFromJs<bool>(
-          rt, &T::installTurboModule, jsInvoker_, instance_);
+          rt, &T::installTurboModule, jsInvoker_, instance_, std::move(bundleModeEnabled));
     }
 
   private:

@@ -1,20 +1,26 @@
 //@ts-nocheck
+import * as Linking from 'expo-linking';
 import { Colors, ThemeKey } from '@/constants/theme';
 import { useAuth } from '@/contexts/AuthContext';
+import { useAppTheme } from '@/contexts/ThemeContext';
+import { useUnlocks } from '@/contexts/UnlocksContext';
 import { useCurrentUserIdentity } from '@/hooks/use-current-user-identity';
+import { ReferralPerkKey, api } from '@/lib/api';
+import { supabase } from '@/lib/supabase';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
 import {
-    Alert,
-    Animated,
-    Image,
-    ImageBackground,
-    ScrollView,
-    Text,
-    TouchableOpacity,
-    View,
+  Alert,
+  Animated,
+  Image,
+  ImageBackground,
+  ScrollView,
+  Share,
+  Text,
+  TouchableOpacity,
+  View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -113,16 +119,16 @@ function ThemeCard({
   themeKey,
   theme,
   isActive,
-  isPremium,
+  isUnlocked,
   onPress,
 }: {
   themeKey: ThemeKey;
   theme: (typeof Colors.themes)[ThemeKey];
   isActive: boolean;
-  isPremium: boolean;
+  isUnlocked: boolean;
   onPress: () => void;
 }) {
-  const isLocked = themeKey !== 'default' && !isPremium;
+  const isLocked = themeKey !== 'default' && !isUnlocked;
   const glow = useRef(new Animated.Value(0.3)).current;
 
   useEffect(() => {
@@ -214,7 +220,7 @@ function ThemeCard({
           }}>
             <Ionicons name="lock-closed" size={18} color="rgba(255,255,255,0.6)" />
             <Text style={{ color: 'rgba(255,255,255,0.45)', fontSize: 9, fontWeight: '700', marginTop: 4, letterSpacing: 0.8, textTransform: 'uppercase' }}>
-              Premium
+              Locked
             </Text>
           </View>
         )}
@@ -226,29 +232,57 @@ function ThemeCard({
 // ── Screen ────────────────────────────────────────────────────────────────────
 
 export default function SettingsScreen() {
-  const [activeTheme, setActiveTheme] = useState<ThemeKey>('default');
-  const [isPremium] = useState(false);
   const [spotifyConnected] = useState(true);
-  const { signOut } = useAuth();
+  const { signOut, refreshProfile } = useAuth();
+  const { themeKey: activeTheme, setThemeKey } = useAppTheme();
+  const { status, loading: unlocksLoading, isThemeUnlocked } = useUnlocks();
   const currentUser = useCurrentUserIdentity();
 
   const handleTheme = async (key: ThemeKey) => {
-    if (key !== 'default' && !isPremium) {
+    if (!isThemeUnlocked(key)) {
       Alert.alert(
-        'Premium only',
-        'Unlock all themes and unlimited Chen for ₦900/month.',
-        [{ text: 'Not now', style: 'cancel' }, { text: 'Upgrade', onPress: () => {} }]
+        'Theme locked',
+        'Share that theme invite link and get a successful onboarding referral to unlock it.',
+        [{ text: 'Not now', style: 'cancel' }]
       );
       return;
     }
-    
-    // Save theme preference to local storage
+
     try {
-      // You could use AsyncStorage or similar for persistence
-      console.log('Theme changed to:', key);
-      setActiveTheme(key);
+      await setThemeKey(key);
+      await api.profile.update({ theme_preference: key });
+      await refreshProfile();
     } catch (error) {
       console.error('Error saving theme:', error);
+      Alert.alert('Theme error', 'Failed to apply this theme. Please try again.');
+    }
+  };
+
+  const sharePerk = async (perkKey: ReferralPerkKey) => {
+    if (!status?.referral_code) {
+      Alert.alert('Referral code missing', 'Refresh this page and try again.');
+      return;
+    }
+
+    const perk = status.perks.find((entry) => entry.key === perkKey);
+    if (!perk) {
+      return;
+    }
+
+    const inviteURL = Linking.createURL('/signup', {
+      queryParams: {
+        referral_code: status.referral_code,
+        perk_key: perkKey,
+      },
+    });
+
+    try {
+      await Share.share({
+        message: `Join Chen with my invite and finish onboarding so I can unlock ${perk.title}. ${inviteURL}`,
+      });
+    } catch (error) {
+      console.error('Share perk error:', error);
+      Alert.alert('Share failed', 'Could not open the share sheet right now.');
     }
   };
 
@@ -423,16 +457,9 @@ export default function SettingsScreen() {
                       <Text style={{ color: Colors.textSecondary, fontSize: 12, marginBottom: 5 }}>
                         Music enthusiast
                       </Text>
-                      {isPremium ? (
-                        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                          <Ionicons name="sparkles" size={11} color={Colors.orange} />
-                          <Text style={{ color: Colors.orange, fontSize: 11, fontWeight: '600', marginLeft: 4 }}>
-                            Premium Member
-                          </Text>
-                        </View>
-                      ) : (
-                        <Text style={{ color: Colors.textMuted, fontSize: 11 }}>Free Plan</Text>
-                      )}
+                      <Text style={{ color: Colors.textMuted, fontSize: 11 }}>
+                        {status?.perks ? `${status.perks.filter((perk) => perk.unlocked).length}/${status.perks.length} perks unlocked` : 'Referral unlocks'}
+                      </Text>
                     </View>
 
                     <TouchableOpacity style={{
@@ -459,7 +486,7 @@ export default function SettingsScreen() {
                       themeKey={key}
                       theme={theme}
                       isActive={activeTheme === key}
-                      isPremium={isPremium}
+                      isUnlocked={isThemeUnlocked(key)}
                       onPress={() => handleTheme(key)}
                     />
                   ))}
@@ -487,70 +514,95 @@ export default function SettingsScreen() {
                 <Row icon="shield-outline" label="Privacy & Data" onPress={handlePrivacy} />
               </FadeSlide>
 
-              {/* ── Subscription ── */}
+              {/* ── Referral Unlocks ── */}
               <FadeSlide delay={280}>
-                <Label>Subscription</Label>
-                {isPremium ? (
+                <Label>Referral Unlocks</Label>
+                <View style={{
+                  borderRadius: 18, overflow: 'hidden',
+                  borderWidth: 1, borderColor: 'rgba(232,100,10,0.18)',
+                  marginBottom: 12,
+                }}>
+                  <LinearGradient
+                    colors={['rgba(232,100,10,0.13)', 'rgba(232,100,10,0.03)', '#0D0B09']}
+                    start={{ x: 0, y: 0 }} end={{ x: 0, y: 1 }}
+                    style={{ padding: 18 }}
+                  >
+                    <Text style={{ color: Colors.textPrimary, fontSize: 17, fontWeight: '700', marginBottom: 4 }}>
+                      Invite for exact unlocks
+                    </Text>
+                    <Text style={{ color: Colors.textSecondary, fontSize: 13, lineHeight: 20, marginBottom: 12 }}>
+                      Each invite link is tied to one perk. When someone signs up from that link and finishes onboarding, progress is added only to that perk.
+                    </Text>
+                    <Text style={{ color: Colors.orange, fontSize: 12, fontWeight: '700', letterSpacing: 0.4 }}>
+                      Your code: {status?.referral_code || 'loading...'}
+                    </Text>
+                  </LinearGradient>
+                </View>
+
+                {unlocksLoading ? (
                   <View style={{
-                    borderRadius: 18, overflow: 'hidden',
-                    borderWidth: 1, borderColor: 'rgba(232,100,10,0.2)',
+                    borderRadius: 18,
+                    borderWidth: 1,
+                    borderColor: 'rgba(232,100,10,0.12)',
+                    backgroundColor: 'rgba(255,255,255,0.04)',
+                    padding: 18,
                     marginBottom: 8,
                   }}>
-                    <LinearGradient
-                      colors={['rgba(232,100,10,0.18)', 'rgba(232,100,10,0.04)', 'transparent']}
-                      start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
-                      style={{ padding: 16 }}
+                    <Text style={{ color: Colors.textSecondary, fontSize: 13 }}>Loading your unlocks...</Text>
+                  </View>
+                ) : (
+                  (status?.perks || []).map((perk) => (
+                    <View
+                      key={perk.key}
+                      style={{
+                        borderRadius: 18,
+                        borderWidth: 1,
+                        borderColor: perk.unlocked ? 'rgba(39,174,96,0.24)' : 'rgba(232,100,10,0.12)',
+                        backgroundColor: 'rgba(255,255,255,0.04)',
+                        padding: 16,
+                        marginBottom: 10,
+                      }}
                     >
-                      <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 6 }}>
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
+                        <View style={{ flex: 1, paddingRight: 12 }}>
+                          <Text style={{ color: Colors.textPrimary, fontSize: 15, fontWeight: '700', marginBottom: 4 }}>
+                            {perk.title}
+                          </Text>
+                          <Text style={{ color: Colors.textSecondary, fontSize: 13, lineHeight: 19 }}>
+                            {perk.description}
+                          </Text>
+                        </View>
                         <View style={{
-                          backgroundColor: Colors.orange,
-                          paddingHorizontal: 10, paddingVertical: 4,
-                          borderRadius: 20, marginRight: 8,
+                          paddingHorizontal: 10,
+                          paddingVertical: 6,
+                          borderRadius: 999,
+                          backgroundColor: perk.unlocked ? 'rgba(39,174,96,0.14)' : 'rgba(232,100,10,0.12)',
                         }}>
-                          <Text style={{ color: '#fff', fontSize: 10, fontWeight: '800', letterSpacing: 0.8, textTransform: 'uppercase' }}>
-                            Premium
+                          <Text style={{ color: perk.unlocked ? Colors.success : Colors.orange, fontSize: 11, fontWeight: '800' }}>
+                            {perk.completed_referrals}/{perk.required_referrals}
                           </Text>
                         </View>
                       </View>
-                      <Text style={{ color: Colors.textSecondary, fontSize: 13 }}>
-                        Renews on March 15, 2026
-                      </Text>
-                    </LinearGradient>
-                  </View>
-                ) : (
-                  <View style={{
-                    borderRadius: 18, overflow: 'hidden',
-                    borderWidth: 1, borderColor: 'rgba(232,100,10,0.18)',
-                    marginBottom: 8,
-                  }}>
-                    <LinearGradient
-                      colors={['rgba(232,100,10,0.13)', 'rgba(232,100,10,0.03)', '#0D0B09']}
-                      start={{ x: 0, y: 0 }} end={{ x: 0, y: 1 }}
-                      style={{ padding: 18 }}
-                    >
-                      <Text style={{ color: Colors.textPrimary, fontSize: 17, fontWeight: '700', marginBottom: 4 }}>
-                        Free Plan
-                      </Text>
-                      <Text style={{ color: Colors.textSecondary, fontSize: 13, lineHeight: 20, marginBottom: 18 }}>
-                        You&apos;re missing unlimited Chen, all 5 themes, voice notes, and full listening history.
-                      </Text>
+
                       <TouchableOpacity
                         activeOpacity={0.85}
+                        onPress={() => sharePerk(perk.key)}
+                        disabled={!status?.referral_code}
                         style={{
-                          backgroundColor: Colors.orange,
-                          borderRadius: 13, paddingVertical: 14,
+                          backgroundColor: perk.unlocked ? 'rgba(255,255,255,0.06)' : Colors.orange,
+                          borderRadius: 13,
+                          paddingVertical: 13,
                           alignItems: 'center',
-                          shadowColor: Colors.orange,
-                          shadowOffset: { width: 0, height: 6 },
-                          shadowOpacity: 0.45, shadowRadius: 14, elevation: 10,
+                          borderWidth: 1,
+                          borderColor: perk.unlocked ? 'rgba(255,255,255,0.08)' : Colors.orange,
                         }}
                       >
-                        <Text style={{ color: '#fff', fontSize: 14, fontWeight: '700', letterSpacing: 0.2 }}>
-                          Upgrade to Premium — ₦900/month
+                        <Text style={{ color: perk.unlocked ? Colors.textPrimary : '#fff', fontSize: 13, fontWeight: '700' }}>
+                          {perk.unlocked ? 'Share again' : `Share ${perk.required_referrals > 1 ? `(${perk.required_referrals} needed)` : 'invite link'}`}
                         </Text>
                       </TouchableOpacity>
-                    </LinearGradient>
-                  </View>
+                    </View>
+                  ))
                 )}
               </FadeSlide>
 

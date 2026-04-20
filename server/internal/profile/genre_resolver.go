@@ -277,7 +277,7 @@ var exactLastFMGenreAliases = map[string]string{
 	"shoegaze":         "Dream Pop",
 	"indie pop":        "Indie Pop",
 	"indie rock":       "Indie Rock",
-	"alternative":      "Alternative",
+	"alternative":      "Alté ",
 	"alternative rock": "Alternative",
 	"electronic":       "Electronic",
 	"ambient":          "Ambient",

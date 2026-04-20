@@ -10,6 +10,7 @@ import (
 	"chen/internal/auth"
 	"chen/internal/friends"
 	"chen/internal/notifications"
+	"chen/internal/referrals"
 	"chen/pkg/supabase"
 
 	"github.com/gin-gonic/gin"
@@ -260,6 +261,15 @@ func sendMessage(c *gin.Context) {
 	trackMetadata := normalizeTrackMetadata(req.TrackMetadata)
 
 	if messageType == "voice" {
+		voiceNotesUnlocked, unlockErr := referrals.HasPerkUnlocked(userID, referrals.PerkVoiceNotes)
+		if unlockErr != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to validate voice note access"})
+			return
+		}
+		if !voiceNotesUnlocked {
+			c.JSON(http.StatusForbidden, gin.H{"error": "Voice notes unlock after 2 successful referrals"})
+			return
+		}
 		if audioURL == "" {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Voice notes require an audio URL"})
 			return

@@ -3,11 +3,13 @@ import { EditProfileModal } from '@/components/edit-profile-modal';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { Colors } from '@/constants/theme';
 import { useAuth } from '@/contexts/AuthContext';
+import { useUnlocks } from '@/contexts/UnlocksContext';
 import { useCurrentUserIdentity } from '@/hooks/use-current-user-identity';
-import { RecommendedTrack, SpotifyArtist, api } from '@/lib/api';
+import { RecommendedTrack, ReferralPerkKey, SpotifyArtist, api } from '@/lib/api';
 import AsyncStorage from '@/lib/storage';
 import { supabase } from '@/lib/supabase';
 import { LinearGradient } from 'expo-linear-gradient';
+import * as Linking from 'expo-linking';
 import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
@@ -16,8 +18,10 @@ import {
   Animated,
   Image,
   ImageBackground,
+  Modal,
   Pressable,
   ScrollView,
+  Share,
   Text,
   View
 } from 'react-native';
@@ -96,6 +100,23 @@ function EmptyState({ message }: { message: string }) {
       <Text style={{ color: Colors.textMuted, fontSize: 13 }}>{message}</Text>
     </View>
   );
+}
+
+function hasImageURI(value?: string | null) {
+  return typeof value === 'string' && value.trim().length > 0;
+}
+
+function getArtistPerkKey(rank: number): ReferralPerkKey | null {
+  switch (rank) {
+    case 3:
+      return 'top_artist_3';
+    case 4:
+      return 'top_artist_4';
+    case 5:
+      return 'top_artist_5';
+    default:
+      return null;
+  }
 }
 
 const PROFILE_SCREEN_CACHE_KEY = 'chen_profile_screen_data_v2';
@@ -219,6 +240,7 @@ function SpotifyStatusCard({ connected, loading, onReconnect }: {
 
 export default function ProfileScreen() {
   const { user, signOut, refreshProfile, loading: authLoading } = useAuth();
+  const { isTopArtistUnlocked, status } = useUnlocks();
   const currentUser = useCurrentUserIdentity();
   const [spotifyConnected, setSpotifyConnected] = useState<boolean | null>(null);
   const [nowPlaying, setNowPlaying] = useState<any>(null);
@@ -230,6 +252,7 @@ export default function ProfileScreen() {
   const [stats, setStats] = useState({ minutesListened: 0, artistsPlayed: 0, topGenre: '--' });
   const [statsLoading, setStatsLoading] = useState(true);
   const [editProfileVisible, setEditProfileVisible] = useState(false);
+  const [lockedArtistRank, setLockedArtistRank] = useState<number | null>(null);
 
   const avatarScale = useRef(new Animated.Value(0.85)).current;
   const avatarOpacity = useRef(new Animated.Value(0)).current;
@@ -483,6 +506,33 @@ export default function ProfileScreen() {
     ]);
   };
 
+  const selectedArtistPerk = lockedArtistRank ? getArtistPerkKey(lockedArtistRank) : null;
+  const selectedArtistInviteURL =
+    lockedArtistRank && selectedArtistPerk && status?.referral_code
+      ? Linking.createURL('/signup', {
+          queryParams: {
+            referral_code: status.referral_code,
+            perk_key: selectedArtistPerk,
+          },
+        })
+      : '';
+
+  const handleShareLockedArtist = async () => {
+    if (!lockedArtistRank || !selectedArtistPerk || !selectedArtistInviteURL) {
+      Alert.alert('Invite unavailable', 'Refresh your profile and try again.');
+      return;
+    }
+
+    try {
+      await Share.share({
+        message: `Join Chen with my invite and finish onboarding so I can unlock Top Artist #${lockedArtistRank}. ${selectedArtistInviteURL}`,
+      });
+    } catch (error) {
+      console.error('Profile: Failed to share locked artist invite', error);
+      Alert.alert('Share failed', 'Could not open the share sheet right now.');
+    }
+  };
+
   return (
     <View style={{ flex: 1, backgroundColor: Colors.bg }}>
       {/* Warm blurred top section */}
@@ -547,7 +597,7 @@ export default function ProfileScreen() {
                   {isNowPlayingLive && <LiveDot />}
                 </View>
                 <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                  {featuredPlayback?.album_art_url ? (
+                  {hasImageURI(featuredPlayback?.album_art_url) ? (
                     <Image source={{ uri: featuredPlayback.album_art_url }} style={{ width: 70, height: 70, borderRadius: 14, marginRight: 14 }} />
                   ) : (
                     <View style={{ width: 70, height: 70, borderRadius: 14, marginRight: 14, backgroundColor: 'rgba(255,255,255,0.06)', alignItems: 'center', justifyContent: 'center' }}>
@@ -556,10 +606,10 @@ export default function ProfileScreen() {
                   )}
                   <View style={{ flex: 1 }}>
                     <Text style={{ color: Colors.textPrimary, fontSize: 17, fontWeight: '700', marginBottom: 4 }}>
-                      {featuredPlayback?.track_name || "Nothing's playing rn"}
+                      {featuredPlayback?.track_name || (recentTracks[0]?.track_name || "Nothing's playing rn")}
                     </Text>
                     <Text style={{ color: Colors.textSecondary, fontSize: 14 }}>
-                      {featuredPlayback?.artist_name || "and no one's singing either"}
+                      {featuredPlayback?.artist_name || (recentTracks[0]?.artist_name || "and no one's singing either")}
                     </Text>
                   </View>
                   {isNowPlayingLive && <EqualizerBars />}
@@ -586,7 +636,7 @@ export default function ProfileScreen() {
                 { value: stats.topGenre || '--', label: 'top genre' },
               ].map((stat, i) => (
                 <Card key={i} style={{ flex: 1, alignItems: 'center', paddingVertical: 18, paddingHorizontal: 8 }}>
-                  {statsLoading || stat.value === '--' ? (
+                  {stat.value === '--' && statsLoading ? (
                     <View style={{ height: 30, justifyContent: 'center', marginBottom: 4 }}>
                       <ActivityIndicator size="small" color={Colors.orange} />
                     </View>
@@ -607,21 +657,130 @@ export default function ProfileScreen() {
               <SectionLabel>Top Artists</SectionLabel>
               {topArtists.length > 0 ? (
                 <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginHorizontal: -4 }}>
-                  {topArtists.slice(0, 5).map((artist, i) => (
-                    <Pressable key={i} style={{ width: 120, height: 130, borderRadius: 18, overflow: 'hidden', marginHorizontal: 5, borderWidth: 1, borderColor: 'rgba(232,100,10,0.1)' }}>
-                      {artist.images?.[0]?.url ? (
-                        <Image source={{ uri: artist.images[0].url }} style={{ width: '100%', height: '100%', position: 'absolute' }} />
-                      ) : (
-                        <View style={{ width: '100%', height: '100%', position: 'absolute', backgroundColor: 'rgba(255,255,255,0.06)', alignItems: 'center', justifyContent: 'center' }}>
-                          <Text style={{ color: Colors.textMuted, fontSize: 24 }}>♪</Text>
-                        </View>
-                      )}
-                      <LinearGradient colors={['transparent', 'rgba(0,0,0,0.85)']} style={{ position: 'absolute', bottom: 0, left: 0, right: 0, paddingHorizontal: 10, paddingBottom: 8, paddingTop: 30 }}>
-                        <Text numberOfLines={1} style={{ color: Colors.textPrimary, fontSize: 12, fontWeight: '700' }}>{artist.name}</Text>
-                      </LinearGradient>
-                      <Text style={{ position: 'absolute', bottom: 6, right: 8, color: 'rgba(232,100,10,0.8)', fontSize: 26, fontWeight: '900', lineHeight: 28 }}>{i + 1}</Text>
-                    </Pressable>
-                  ))}
+                  {[1, 2, 3, 4, 5].map((rank) => {
+                    const artist = topArtists[rank - 1];
+                    const unlocked = isTopArtistUnlocked(rank);
+
+                    if (!unlocked) {
+                      return (
+                        <Pressable
+                          key={rank}
+                          onPress={() => setLockedArtistRank(rank)}
+                          style={{
+                            width: 120,
+                            height: 130,
+                            borderRadius: 18,
+                            overflow: 'hidden',
+                            marginHorizontal: 5,
+                            borderWidth: 1,
+                            borderColor: 'rgba(232,100,10,0.14)',
+                            backgroundColor: 'rgba(255,255,255,0.03)',
+                          }}
+                        >
+                          <LinearGradient
+                            colors={['rgba(232,100,10,0.16)', 'rgba(255,255,255,0.05)', 'rgba(255,255,255,0.02)']}
+                            start={{ x: 0, y: 0 }}
+                            end={{ x: 1, y: 1 }}
+                            style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}
+                          />
+
+                          <View
+                            style={{
+                              position: 'absolute',
+                              top: -30,
+                              right: -22,
+                              width: 92,
+                              height: 92,
+                              borderRadius: 46,
+                              backgroundColor: 'rgba(232,100,10,0.07)',
+                            }}
+                          />
+
+                          <View
+                            style={{
+                              position: 'absolute',
+                              bottom: -28,
+                              left: -14,
+                              width: 82,
+                              height: 82,
+                              borderRadius: 41,
+                              backgroundColor: 'rgba(255,255,255,0.03)',
+                            }}
+                          />
+
+                          <View
+                            style={{
+                              position: 'absolute',
+                              top: 16,
+                              left: 16,
+                              right: 16,
+                              bottom: 16,
+                              borderRadius: 16,
+                              borderWidth: 1,
+                              borderColor: 'rgba(255,255,255,0.05)',
+                            }}
+                          />
+
+                          <View
+                            style={{
+                              flex: 1,
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              paddingHorizontal: 12,
+                            }}
+                          >
+                            <View
+                              style={{
+                                width: 86,
+                                height: 86,
+                                borderRadius: 43,
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                backgroundColor: 'rgba(255,255,255,0.04)',
+                                borderWidth: 1,
+                                borderColor: 'rgba(232,100,10,0.18)',
+                                shadowColor: Colors.orange,
+                                shadowOpacity: 0.16,
+                                shadowRadius: 18,
+                                shadowOffset: { width: 0, height: 8 },
+                              }}
+                            >
+                              <View
+                                style={{
+                                  position: 'absolute',
+                                  width: 54,
+                                  height: 54,
+                                  borderRadius: 27,
+                                  backgroundColor: 'rgba(232,100,10,0.08)',
+                                }}
+                              />
+                              <IconSymbol name="lock.fill" size={36} color={Colors.orange} />
+                              <Text style={{ position: 'absolute', bottom: 6, right: 8, color: 'rgba(232,100,10,0.8)', fontSize: 26, fontWeight: '900', lineHeight: 28 }}>{rank}</Text>
+                            </View>
+                          </View>
+                        </Pressable>
+                      );
+                    }
+
+                    return (
+                      <Pressable key={rank} style={{ width: 120, height: 130, borderRadius: 18, overflow: 'hidden', marginHorizontal: 5, borderWidth: 1, borderColor: 'rgba(232,100,10,0.1)' }}>
+                        {hasImageURI(artist?.images?.[0]?.url) ? (
+                          <Image source={{ uri: artist.images[0].url }} style={{ width: '100%', height: '100%', position: 'absolute' }} />
+                        ) : (
+                          <View style={{ width: '100%', height: '100%', position: 'absolute', backgroundColor: 'rgba(255,255,255,0.06)', alignItems: 'center', justifyContent: 'center', padding: 12 }}>
+                            <Text style={{ color: Colors.textMuted, fontSize: 24, marginBottom: 8 }}>♪</Text>
+                            <Text style={{ color: Colors.textMuted, fontSize: 11, textAlign: 'center' }}>Still shaping this slot</Text>
+                          </View>
+                        )}
+                        <LinearGradient colors={['transparent', 'rgba(0,0,0,0.85)']} style={{ position: 'absolute', bottom: 0, left: 0, right: 0, paddingHorizontal: 10, paddingBottom: 8, paddingTop: 30 }}>
+                          <Text numberOfLines={1} style={{ color: Colors.textPrimary, fontSize: 12, fontWeight: '700' }}>
+                            {artist?.name || `Top Artist #${rank}`}
+                          </Text>
+                        </LinearGradient>
+                        <Text style={{ position: 'absolute', bottom: 6, right: 8, color: 'rgba(232,100,10,0.8)', fontSize: 26, fontWeight: '900', lineHeight: 28 }}>{rank}</Text>
+                      </Pressable>
+                    );
+                  })}
                 </ScrollView>
               ) : (
                 <View style={{ height: 130, borderRadius: 18, backgroundColor: 'rgba(255,255,255,0.03)', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: 'rgba(232,100,10,0.08)' }}>
@@ -638,7 +797,13 @@ export default function ProfileScreen() {
               {topTracks.length > 0 ? topTracks.slice(0, 3).map((track, i) => (
                 <Pressable key={i} style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 11, borderBottomWidth: i < 2 ? 1 : 0, borderBottomColor: 'rgba(255,255,255,0.06)' }}>
                   <Text style={{ color: Colors.textMuted, fontSize: 13, fontWeight: '700', width: 20, marginRight: 10 }}>{i + 1}</Text>
-                  <Image source={{ uri: track.imageUrl || track.image_url || track.album_art_url }} style={{ width: 46, height: 46, borderRadius: 10, marginRight: 12 }} />
+                  {hasImageURI(track.imageUrl || track.image_url || track.album_art_url) ? (
+                    <Image source={{ uri: track.imageUrl || track.image_url || track.album_art_url }} style={{ width: 46, height: 46, borderRadius: 10, marginRight: 12 }} />
+                  ) : (
+                    <View style={{ width: 46, height: 46, borderRadius: 10, marginRight: 12, backgroundColor: 'rgba(255,255,255,0.06)', alignItems: 'center', justifyContent: 'center' }}>
+                      <Text style={{ color: Colors.textMuted, fontSize: 18 }}>♪</Text>
+                    </View>
+                  )}
                   <View style={{ flex: 1 }}>
                     <Text style={{ color: Colors.textPrimary, fontSize: 14, fontWeight: '600', marginBottom: 2 }}>{track.name}</Text>
                     <Text style={{ color: Colors.textSecondary, fontSize: 12 }}>{track.artist}</Text>
@@ -667,17 +832,35 @@ export default function ProfileScreen() {
                         marginRight: 12,
                       }}
                     >
-                      <Image
-                        source={{ uri: track.album_art_url }}
-                        style={{
-                          width: 112,
-                          height: 120,
-                          borderRadius: 7,
-                          borderWidth: 1,
-                          borderColor: 'rgba(232,100,10,0.14)',
-                          marginBottom: 10,
-                        }}
-                      />
+                      {hasImageURI(track.album_art_url) ? (
+                        <Image
+                          source={{ uri: track.album_art_url }}
+                          style={{
+                            width: 112,
+                            height: 120,
+                            borderRadius: 7,
+                            borderWidth: 1,
+                            borderColor: 'rgba(232,100,10,0.14)',
+                            marginBottom: 10,
+                          }}
+                        />
+                      ) : (
+                        <View
+                          style={{
+                            width: 112,
+                            height: 120,
+                            borderRadius: 7,
+                            borderWidth: 1,
+                            borderColor: 'rgba(232,100,10,0.14)',
+                            marginBottom: 10,
+                            backgroundColor: 'rgba(255,255,255,0.05)',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                          }}
+                        >
+                          <Text style={{ color: Colors.textMuted, fontSize: 24 }}>♪</Text>
+                        </View>
+                      )}
                       <Text
                         numberOfLines={3}
                         style={{
@@ -731,10 +914,16 @@ export default function ProfileScreen() {
                       }}
                     >
                       <View style={{ position: 'relative', borderRadius: 24, overflow: 'hidden' }}>
-                        <Image
-                          source={{ uri: track.album_art }}
-                          style={{ width: '100%', height: 138 }}
-                        />
+                        {hasImageURI(track.album_art) ? (
+                          <Image
+                            source={{ uri: track.album_art }}
+                            style={{ width: '100%', height: 138 }}
+                          />
+                        ) : (
+                          <View style={{ width: '100%', height: 138, backgroundColor: 'rgba(255,255,255,0.05)', alignItems: 'center', justifyContent: 'center' }}>
+                            <Text style={{ color: Colors.textMuted, fontSize: 24 }}>♪</Text>
+                          </View>
+                        )}
                         <LinearGradient
                           colors={['transparent', 'rgba(7,8,12,0.88)']}
                           style={{
@@ -828,6 +1017,145 @@ export default function ProfileScreen() {
 
         </View>
       </ScrollView>
+
+      <Modal
+        visible={lockedArtistRank !== null}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setLockedArtistRank(null)}
+      >
+        <View
+          style={{
+            flex: 1,
+            backgroundColor: 'rgba(0,0,0,0.6)',
+            alignItems: 'center',
+            justifyContent: 'center',
+            paddingHorizontal: 22,
+          }}
+        >
+          <Pressable
+            style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}
+            onPress={() => setLockedArtistRank(null)}
+          />
+
+          <View
+            style={{
+              width: '100%',
+              maxWidth: 360,
+              borderRadius: 28,
+              overflow: 'hidden',
+              borderWidth: 1,
+              borderColor: 'rgba(232,100,10,0.18)',
+              backgroundColor: 'rgba(5,8,18,0.96)',
+            }}
+          >
+            <LinearGradient
+              colors={['rgba(232,100,10,0.18)', 'rgba(232,100,10,0.04)', 'rgba(255,255,255,0.02)']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={{ padding: 22 }}
+            >
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 18 }}>
+                <View
+                  style={{
+                    width: 56,
+                    height: 56,
+                    borderRadius: 28,
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    backgroundColor: 'rgba(255,255,255,0.05)',
+                    borderWidth: 1,
+                    borderColor: 'rgba(232,100,10,0.2)',
+                  }}
+                >
+                  <IconSymbol name="lock.fill" size={24} color={Colors.orange} />
+                </View>
+
+                <Pressable
+                  onPress={() => setLockedArtistRank(null)}
+                  style={{
+                    width: 34,
+                    height: 34,
+                    borderRadius: 17,
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    backgroundColor: 'rgba(255,255,255,0.05)',
+                    borderWidth: 1,
+                    borderColor: 'rgba(255,255,255,0.08)',
+                  }}
+                >
+                  <Text style={{ color: Colors.textPrimary, fontSize: 18, fontWeight: '700' }}>×</Text>
+                </Pressable>
+              </View>
+
+              <Text style={{ color: Colors.textPrimary, fontSize: 22, fontWeight: '800', marginBottom: 8 }}>
+                Unlock Top Artist #{lockedArtistRank}
+              </Text>
+              <Text style={{ color: Colors.textSecondary, fontSize: 14, lineHeight: 21, marginBottom: 18 }}>
+                Share this exact invite link. Once someone signs up from it and finishes onboarding, this artist slot unlocks for you.
+              </Text>
+
+              <View
+                style={{
+                  borderRadius: 18,
+                  padding: 14,
+                  backgroundColor: 'rgba(255,255,255,0.04)',
+                  borderWidth: 1,
+                  borderColor: 'rgba(255,255,255,0.08)',
+                  marginBottom: 16,
+                }}
+              >
+                <Text style={{ color: Colors.textMuted, fontSize: 10, fontWeight: '700', letterSpacing: 1.1, marginBottom: 8 }}>
+                  SHARE LINK
+                </Text>
+                <Text selectable style={{ color: Colors.textPrimary, fontSize: 12, lineHeight: 18 }}>
+                  {selectedArtistInviteURL || 'Invite link will appear once your referral code is ready.'}
+                </Text>
+              </View>
+
+              <View style={{ flexDirection: 'row', gap: 10 }}>
+                <Pressable
+                  onPress={() => setLockedArtistRank(null)}
+                  style={{
+                    flex: 1,
+                    borderRadius: 16,
+                    paddingVertical: 14,
+                    alignItems: 'center',
+                    backgroundColor: 'rgba(255,255,255,0.05)',
+                    borderWidth: 1,
+                    borderColor: 'rgba(255,255,255,0.08)',
+                  }}
+                >
+                  <Text style={{ color: Colors.textPrimary, fontSize: 13, fontWeight: '700' }}>
+                    Not now
+                  </Text>
+                </Pressable>
+
+                <Pressable
+                  onPress={handleShareLockedArtist}
+                  style={{
+                    flex: 1,
+                    borderRadius: 16,
+                    paddingVertical: 14,
+                    alignItems: 'center',
+                    backgroundColor: Colors.orange,
+                    borderWidth: 1,
+                    borderColor: 'rgba(255,255,255,0.1)',
+                    shadowColor: Colors.orange,
+                    shadowOpacity: 0.25,
+                    shadowRadius: 14,
+                    shadowOffset: { width: 0, height: 8 },
+                  }}
+                >
+                  <Text style={{ color: Colors.white, fontSize: 13, fontWeight: '800' }}>
+                    Share link
+                  </Text>
+                </Pressable>
+              </View>
+            </LinearGradient>
+          </View>
+        </View>
+      </Modal>
 
       <EditProfileModal
         visible={editProfileVisible}

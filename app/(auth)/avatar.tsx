@@ -27,7 +27,6 @@ export default function AvatarScreen() {
   const buttonWidth = 60;
   const maxSlide = Math.max(trackWidth - buttonWidth - 8, 0);
 
-  // Generate random seeds
   const generateSeeds = () => {
     const seeds = Array.from({ length: 8 }, () =>
       Math.random().toString(36).substring(7)
@@ -214,6 +213,7 @@ behavior={Platform.OS === 'ios' ? 'padding' : undefined}
               paddingHorizontal: 4,
             }}
           >
+
             <Animated.View
               {...panResponder.panHandlers}
               style={{

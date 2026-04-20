@@ -1,7 +1,7 @@
 //@ts-ignore
-import { Platform } from 'react-native';
+import { Platform } from "react-native";
 
-import { supabase } from './supabase';
+import { supabase } from "./supabase";
 
 export type ActivityItem = {
   id: string;
@@ -15,7 +15,7 @@ export type ActivityItem = {
   album_art_url: string;
   spotify_url?: string;
   preview_url?: string;
-  platform: 'spotify';
+  platform: "spotify";
   started_at: string;
   played_at?: string;
   is_playing: boolean;
@@ -36,7 +36,7 @@ export type PublicProfileStats = {
 
 export type PublicProfileRelationship = {
   friendshipId?: string;
-  status: 'none' | 'self' | 'friends' | 'outgoing_pending' | 'incoming_pending';
+  status: "none" | "self" | "friends" | "outgoing_pending" | "incoming_pending";
   canMessage: boolean;
 };
 
@@ -105,7 +105,12 @@ export type FriendSearchResult = {
   username: string;
   user_tag?: string;
   avatar_id: string;
-  relationship_status: 'none' | 'self' | 'friends' | 'outgoing_pending' | 'incoming_pending';
+  relationship_status:
+    | "none"
+    | "self"
+    | "friends"
+    | "outgoing_pending"
+    | "incoming_pending";
 };
 
 export type FriendRecommendation = {
@@ -123,7 +128,12 @@ export type FriendDiscoverResult = {
   username: string;
   user_tag?: string;
   avatar_id: string;
-  relationship_status: 'none' | 'self' | 'friends' | 'outgoing_pending' | 'incoming_pending';
+  relationship_status:
+    | "none"
+    | "self"
+    | "friends"
+    | "outgoing_pending"
+    | "incoming_pending";
   is_online: boolean;
   current_track?: ActivityItem;
 };
@@ -135,7 +145,46 @@ export type UserProfile = {
   user_tag?: string;
   avatar_id: string;
   is_premium: boolean;
+  theme_preference?: string;
+  referral_code?: string;
+  onboarding_completed_at?: string;
   created_at: string;
+};
+
+export type ReferralPerkKey =
+  | "top_artist_3"
+  | "top_artist_4"
+  | "top_artist_5"
+  | "voice_notes"
+  | "theme_lagos_night"
+  | "theme_harmattan"
+  | "theme_midnight_afro"
+  | "theme_atilola_red";
+
+export type ReferralPerkStatus = {
+  key: ReferralPerkKey;
+  title: string;
+  description: string;
+  required_referrals: number;
+  completed_referrals: number;
+  unlocked: boolean;
+  theme_key?: string;
+  artist_rank?: number;
+};
+
+export type ReferralStatus = {
+  referral_code: string;
+  theme_preference: string;
+  onboarding_complete: boolean;
+  voice_notes_unlocked: boolean;
+  unlocked_theme_keys: string[];
+  unlocked_artist_ranks: number[];
+  perks: ReferralPerkStatus[];
+};
+
+export type CompleteReferralOnboardingResponse = {
+  applied: boolean;
+  status: ReferralStatus;
 };
 
 export type ChatResponse = {
@@ -143,7 +192,7 @@ export type ChatResponse = {
 };
 
 export type ChenConversationMessage = {
-  role: 'user' | 'assistant';
+  role: "user" | "assistant";
   content: string;
 };
 
@@ -172,7 +221,7 @@ export type DirectMessage = {
   sender_id: string;
   recipient_id: string;
   content: string;
-  message_type: 'text' | 'voice' | 'track_reply';
+  message_type: "text" | "voice" | "track_reply";
   audio_url?: string;
   audio_duration_ms?: number;
   track_metadata?: DirectMessageTrack;
@@ -194,7 +243,7 @@ export type MessageThreadResponse = {
 
 export type SendDirectMessagePayload = {
   content?: string;
-  message_type?: 'text' | 'voice' | 'track_reply';
+  message_type?: "text" | "voice" | "track_reply";
   audio_url?: string;
   audio_duration_ms?: number;
   track_metadata?: DirectMessageTrack;
@@ -279,13 +328,13 @@ export type SpotifyTopArtistsResponse = {
 };
 
 function resolveApiBase() {
-  const configuredBase = process.env.EXPO_PUBLIC_API_URL?.replace(/\/$/, '');
-  const fallbackBase = 'http://localhost:5000/api/v1';
+  const configuredBase = process.env.EXPO_PUBLIC_API_URL?.replace(/\/$/, "");
+  const fallbackBase = "http://localhost:5000/api/v1";
   const base = configuredBase || fallbackBase;
 
   // Android emulators cannot reach the host machine via localhost.
-  if (Platform.OS === 'android' && base.includes('localhost')) {
-    return base.replace('localhost', '10.0.2.2');
+  if (Platform.OS === "android" && base.includes("localhost")) {
+    return base.replace("localhost", "10.0.2.2");
   }
 
   return base;
@@ -294,14 +343,16 @@ function resolveApiBase() {
 const API_BASE = resolveApiBase();
 
 async function getAuthHeaders(): Promise<Record<string, string>> {
-  const { data: { session } } = await supabase.auth.getSession();
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
   if (!session?.access_token) {
-    throw new Error('Authentication required');
+    throw new Error("Authentication required");
   }
 
   return {
-    'Content-Type': 'application/json',
-    'Authorization': `Bearer ${session.access_token}`,
+    "Content-Type": "application/json",
+    Authorization: `Bearer ${session.access_token}`,
   };
 }
 
@@ -319,7 +370,7 @@ async function getJSON<T>(path: string): Promise<T> {
 async function postJSON<T>(path: string, body: any): Promise<T> {
   const headers = await getAuthHeaders();
   const res = await fetch(`${API_BASE}${path}`, {
-    method: 'POST',
+    method: "POST",
     headers,
     body: JSON.stringify(body),
   });
@@ -334,7 +385,7 @@ async function postJSON<T>(path: string, body: any): Promise<T> {
 async function deleteJSON<T>(path: string, body?: any): Promise<T> {
   const headers = await getAuthHeaders();
   const res = await fetch(`${API_BASE}${path}`, {
-    method: 'DELETE',
+    method: "DELETE",
     headers,
     body: body ? JSON.stringify(body) : undefined,
   });
@@ -354,88 +405,153 @@ async function deleteJSON<T>(path: string, body?: any): Promise<T> {
 
 export const api = {
   feed: {
-    get: () => getJSON<ActivityItem[]>('/activity/feed'),
+    get: () => getJSON<ActivityItem[]>("/activity/feed"),
   },
   friends: {
-    list: () => getJSON<Friend[]>('/friends'),
-    discover: () => getJSON<FriendDiscoverResult[]>('/friends/discover'),
-    requests: () => getJSON<PendingFriendRequest[]>('/friends/requests'),
-    search: (query: string) => getJSON<FriendSearchResult[]>(`/friends/search?q=${encodeURIComponent(query)}`),
-    recommendations: () => getJSON<FriendRecommendation[]>('/friends/recommendations'),
-    add: (username: string) => postJSON('/friends/add', { username }),
-    accept: (friendshipId: string) => postJSON('/friends/accept', { friendship_id: friendshipId }),
-    decline: (friendshipId: string) => postJSON('/friends/decline', { friendship_id: friendshipId }),
+    list: () => getJSON<Friend[]>("/friends"),
+    discover: () => getJSON<FriendDiscoverResult[]>("/friends/discover"),
+    requests: () => getJSON<PendingFriendRequest[]>("/friends/requests"),
+    search: (query: string) =>
+      getJSON<FriendSearchResult[]>(
+        `/friends/search?q=${encodeURIComponent(query)}`,
+      ),
+    recommendations: () =>
+      getJSON<FriendRecommendation[]>("/friends/recommendations"),
+    add: (username: string) => postJSON("/friends/add", { username }),
+    accept: (friendshipId: string) =>
+      postJSON("/friends/accept", { friendship_id: friendshipId }),
+    decline: (friendshipId: string) =>
+      postJSON("/friends/decline", { friendship_id: friendshipId }),
   },
   spotify: {
-    nowPlaying: () => getJSON<ActivityItem | null>('/spotify/now-playing'),
-    recent: () => getJSON<ActivityItem[]>('/spotify/recent'),
-    topArtists: (timeRange = 'short_term', limit = 5, options?: { fresh?: boolean }) => {
+    nowPlaying: () => getJSON<ActivityItem | null>("/spotify/now-playing"),
+    recent: () => getJSON<ActivityItem[]>("/spotify/recent"),
+    topArtists: (
+      timeRange = "short_term",
+      limit = 5,
+      options?: { fresh?: boolean },
+    ) => {
       const params = new URLSearchParams({
         time_range: timeRange,
         limit: String(limit),
       });
       if (options?.fresh) {
-        params.set('fresh', 'true');
+        params.set("fresh", "true");
       }
-      return getJSON<SpotifyTopArtistsResponse>(`/spotify/top-artists?${params.toString()}`);
+      return getJSON<SpotifyTopArtistsResponse>(
+        `/spotify/top-artists?${params.toString()}`,
+      );
     },
-    recommendations: () => getJSON<RecommendedTrack[]>('/spotify/recommendations'),
-    connect: (accessToken: string, refreshToken: string, expiresIn: number) => 
-      postJSON('/spotify/connect', { access_token: accessToken, refresh_token: refreshToken, expires_in: expiresIn }),
+    recommendations: () =>
+      getJSON<RecommendedTrack[]>("/spotify/recommendations"),
+    connect: (accessToken: string, refreshToken: string, expiresIn: number) =>
+      postJSON("/spotify/connect", {
+        access_token: accessToken,
+        refresh_token: refreshToken,
+        expires_in: expiresIn,
+      }),
+    exchangeCode: (
+      code: string,
+      redirectUri: string,
+      username?: string,
+      avatarId?: string,
+    ) =>
+      postJSON<{ message: string }>("/spotify/exchange-code", {
+        code,
+        redirect_uri: redirectUri,
+        username: username ?? "",
+        avatar_id: avatarId ?? "",
+      }),
   },
   profile: {
-    me: () => getJSON<UserProfile>('/auth/user'),
-    update: (data: Partial<UserProfile>) => postJSON('/auth/user', data),
-    stats: () => getJSON<any>('/profile/stats'),
-    topArtists: () => getJSON<any[]>('/profile/top-artists'),
-    topTracks: () => getJSON<any[]>('/profile/top-tracks'),
+    me: () => getJSON<UserProfile>("/auth/user"),
+    update: (data: Partial<UserProfile>) => postJSON("/auth/user", data),
+    stats: () => getJSON<any>("/profile/stats"),
+    topArtists: () => getJSON<any[]>("/profile/top-artists"),
+    topTracks: () => getJSON<any[]>("/profile/top-tracks"),
     user: (userId: string, options?: { fresh?: boolean }) => {
       const params = new URLSearchParams();
       if (options?.fresh) {
-        params.set('fresh', 'true');
+        params.set("fresh", "true");
       }
-      const suffix = params.toString() ? `?${params.toString()}` : '';
-      return getJSON<PublicProfileData>(`/profile/users/${encodeURIComponent(userId)}${suffix}`);
+      const suffix = params.toString() ? `?${params.toString()}` : "";
+      return getJSON<PublicProfileData>(
+        `/profile/users/${encodeURIComponent(userId)}${suffix}`,
+      );
     },
   },
   reactions: {
     engagement: (activityIds: string[]) =>
-      getJSON<Record<string, FeedEngagement>>(`/reactions/engagement?activity_ids=${encodeURIComponent(activityIds.join(','))}`),
+      getJSON<Record<string, FeedEngagement>>(
+        `/reactions/engagement?activity_ids=${encodeURIComponent(activityIds.join(","))}`,
+      ),
     comments: (activityId: string) =>
-      getJSON<ActivityComment[]>(`/reactions/comments/${encodeURIComponent(activityId)}`),
-    createComment: (activityId: string, content: string, parentCommentId?: string | null) =>
-      postJSON('/reactions/comments', {
+      getJSON<ActivityComment[]>(
+        `/reactions/comments/${encodeURIComponent(activityId)}`,
+      ),
+    createComment: (
+      activityId: string,
+      content: string,
+      parentCommentId?: string | null,
+    ) =>
+      postJSON("/reactions/comments", {
         activity_id: activityId,
         content,
         parent_comment_id: parentCommentId || undefined,
       }),
-    toggle: (activityId: string, reactionType: 'love' | 'fire' | 'headphones') =>
-      postJSON<{ active: boolean }>('/reactions/toggle', {
+    toggle: (
+      activityId: string,
+      reactionType: "love" | "fire" | "headphones",
+    ) =>
+      postJSON<{ active: boolean }>("/reactions/toggle", {
         activity_id: activityId,
         reaction_type: reactionType,
       }),
   },
   notifications: {
-    list: () => getJSON<NotificationListResponse>('/notifications'),
-    unreadCount: () => getJSON<NotificationUnreadCount>('/notifications/unread-count'),
-    markRead: (id: string) => postJSON(`/notifications/${encodeURIComponent(id)}/read`, {}),
-    markAllRead: () => postJSON('/notifications/read-all', {}),
-    registerPushToken: (payload: PushTokenPayload) => postJSON('/notifications/push-token', payload),
-    unregisterPushToken: (payload: DeletePushTokenPayload) => deleteJSON('/notifications/push-token', payload),
-    generateListeningInsight: () => postJSON('/notifications/listening-insight', {}),
+    list: () => getJSON<NotificationListResponse>("/notifications"),
+    unreadCount: () =>
+      getJSON<NotificationUnreadCount>("/notifications/unread-count"),
+    markRead: (id: string) =>
+      postJSON(`/notifications/${encodeURIComponent(id)}/read`, {}),
+    markAllRead: () => postJSON("/notifications/read-all", {}),
+    registerPushToken: (payload: PushTokenPayload) =>
+      postJSON("/notifications/push-token", payload),
+    unregisterPushToken: (payload: DeletePushTokenPayload) =>
+      deleteJSON("/notifications/push-token", payload),
+    generateListeningInsight: () =>
+      postJSON("/notifications/listening-insight", {}),
   },
   messages: {
-    threads: () => getJSON<MessageThread[]>('/messages/threads'),
-    thread: (friendId: string) => getJSON<MessageThreadResponse>(`/messages/${encodeURIComponent(friendId)}`),
+    threads: () => getJSON<MessageThread[]>("/messages/threads"),
+    thread: (friendId: string) =>
+      getJSON<MessageThreadResponse>(
+        `/messages/${encodeURIComponent(friendId)}`,
+      ),
     send: (friendId: string, payload: string | SendDirectMessagePayload) =>
       postJSON<DirectMessage>(
         `/messages/${encodeURIComponent(friendId)}`,
-        typeof payload === 'string' ? { content: payload, message_type: 'text' } : payload
+        typeof payload === "string"
+          ? { content: payload, message_type: "text" }
+          : payload,
       ),
-    markRead: (friendId: string) => postJSON(`/messages/${encodeURIComponent(friendId)}/read`, {}),
+    markRead: (friendId: string) =>
+      postJSON(`/messages/${encodeURIComponent(friendId)}/read`, {}),
   },
   chen: {
-    conversation: () => getJSON<ChenConversation>('/chen/conversation'),
-    chat: (message: string, history: any[]) => postJSON<ChatResponse>('/chen/chat', { message, history }),
+    conversation: () => getJSON<ChenConversation>("/chen/conversation"),
+    chat: (message: string, history: any[]) =>
+      postJSON<ChatResponse>("/chen/chat", { message, history }),
+  },
+  referrals: {
+    status: () => getJSON<ReferralStatus>("/referrals"),
+    completeOnboarding: (payload: {
+      referral_code?: string;
+      perk_key?: ReferralPerkKey;
+    }) =>
+      postJSON<CompleteReferralOnboardingResponse>(
+        "/referrals/complete-onboarding",
+        payload,
+      ),
   },
 };

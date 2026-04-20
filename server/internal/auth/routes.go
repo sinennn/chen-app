@@ -1,22 +1,27 @@
 package auth
 
 import (
+	"chen/internal/referrals"
 	"chen/pkg/supabase"
 	"encoding/json"
 	"log"
 	"net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 )
 
 type UserProfile struct {
-	ID        string `json:"id"`
-	Email     string `json:"email"`
-	Username  string `json:"username"`
-	UserTag   string `json:"user_tag,omitempty"`
-	AvatarID  string `json:"avatar_id"`
-	IsPremium bool   `json:"is_premium"`
-	CreatedAt string `json:"created_at"`
+	ID                  string `json:"id"`
+	Email               string `json:"email"`
+	Username            string `json:"username"`
+	UserTag             string `json:"user_tag,omitempty"`
+	AvatarID            string `json:"avatar_id"`
+	IsPremium           bool   `json:"is_premium"`
+	ThemePreference     string `json:"theme_preference,omitempty"`
+	ReferralCode        string `json:"referral_code,omitempty"`
+	OnboardingCompleted string `json:"onboarding_completed_at,omitempty"`
+	CreatedAt           string `json:"created_at"`
 }
 
 func RegisterPublicRoutes(rg *gin.RouterGroup) {
@@ -68,7 +73,7 @@ func handleGetUser(c *gin.Context) {
 	// Query the users table in Supabase
 	client := supabase.GetClient()
 	data, _, err := client.From("users").
-		Select("id,email,username,user_tag,avatar_id,is_premium,created_at", "", false).
+		Select("id,email,username,user_tag,avatar_id,is_premium,theme_preference,referral_code,onboarding_completed_at,created_at", "", false).
 		Eq("id", userIDStr).
 		Execute()
 
@@ -195,6 +200,27 @@ func handleUpdateUser(c *gin.Context) {
 	}
 
 	// Update user in Supabase
+	if themePreference, exists := updateData["theme_preference"]; exists {
+		themeKey, ok := themePreference.(string)
+		if !ok {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid theme_preference format"})
+			return
+		}
+
+		normalizedTheme := strings.TrimSpace(themeKey)
+		allowed, err := referrals.ThemeAccessible(userIDStr, normalizedTheme)
+		if err != nil {
+			log.Printf("Error validating theme access: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to validate theme access"})
+			return
+		}
+		if !allowed {
+			c.JSON(http.StatusForbidden, gin.H{"error": "Theme is locked"})
+			return
+		}
+		updateData["theme_preference"] = normalizedTheme
+	}
+
 	_, _, err := client.From("users").
 		Update(updateData, "", "").
 		Eq("id", userIDStr).
