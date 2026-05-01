@@ -2,6 +2,7 @@ import { IconSymbol } from '@/components/ui/icon-symbol';
 import { Colors } from '@/constants/theme';
 import { useCurrentUserIdentity } from '@/hooks/use-current-user-identity';
 import { ChenConversationMessage, api } from '@/lib/api';
+import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useEffect, useRef, useState } from 'react';
 import {
@@ -157,7 +158,7 @@ function ChenAvatar({ isThinking = false }: { isThinking?: boolean }) {
   });
 
   // Color shift: orange → lighter when thinking
-  const ringColor = isThinking ? '#FF9A3C' : Colors.orange;
+  const ringColor = isThinking ? Colors.accentSecondary : Colors.orange;
 
   return (
     <View style={{ alignItems: 'center', justifyContent: 'center', height: 120 }}>
@@ -273,15 +274,15 @@ function ChatBubble({ message, isUser }: { message: ChatMessage; isUser: boolean
       <View
         style={{
           backgroundColor: isUser
-            ? 'rgba(232, 100, 10, 0.18)'
-            : 'rgba(255,255,255,0.07)',
+            ? Colors.accentSurfaceStrong
+            : Colors.surfaceMuted,
           borderRadius: 22,
           paddingHorizontal: 16,
           paddingVertical: 12,
           borderWidth: 1,
           borderColor: isUser
-            ? 'rgba(232, 100, 10, 0.3)'
-            : 'rgba(255,255,255,0.1)',
+            ? Colors.borderStrong
+            : Colors.surfaceStrong,
           ...(isUser ? {
             shadowColor: Colors.orange,
             shadowOffset: { width: 0, height: 3 },
@@ -309,6 +310,7 @@ function ChatBubble({ message, isUser }: { message: ChatMessage; isUser: boolean
 export default function ChenScreen() {
   const currentUser = useCurrentUserIdentity();
   const name = currentUser.greetingName;
+  const tabBarHeight = useBottomTabBarHeight();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
   const [isThinking, setIsThinking] = useState(false);
@@ -425,7 +427,7 @@ export default function ChenScreen() {
       >
         {/* @ts-ignore */}
         <LinearGradient
-          colors={['rgba(0, 1, 6, 0.85)', 'rgba(0, 1, 6, 0.9)', 'rgba(0, 1, 6, 0.95)']}
+          colors={[Colors.bgCanvasTop, Colors.bgCanvasMiddle, Colors.bgCanvasBottom]}
           style={{ flex: 1 }}
         >
           <KeyboardAvoidingView
@@ -452,9 +454,9 @@ export default function ChenScreen() {
                 }}>
                   <Pressable style={{
                     width: 38, height: 38, borderRadius: 19,
-                    backgroundColor: 'rgba(255,255,255,0.06)',
+                    backgroundColor: Colors.surfaceMuted,
                     alignItems: 'center', justifyContent: 'center',
-                    borderWidth: 1, borderColor: 'rgba(232,100,10,0.12)',
+                    borderWidth: 1, borderColor: Colors.border,
                   }}>
                     <IconSymbol name="chevron.left" size={18} color={Colors.textSecondary} />
                   </Pressable>
@@ -470,9 +472,9 @@ export default function ChenScreen() {
 
                   <Pressable style={{
                     width: 38, height: 38, borderRadius: 19,
-                    backgroundColor: 'rgba(255,255,255,0.06)',
+                    backgroundColor: Colors.surfaceMuted,
                     alignItems: 'center', justifyContent: 'center',
-                    borderWidth: 1, borderColor: 'rgba(232,100,10,0.12)',
+                    borderWidth: 1, borderColor: Colors.border,
                   }}>
                     <IconSymbol name="gearshape" size={16} color={Colors.textSecondary} />
                   </Pressable>
@@ -493,7 +495,7 @@ export default function ChenScreen() {
                   pointerEvents="none"
                 >
                   <LinearGradient
-                    colors={['transparent', 'rgba(13,11,9,0.6)']}
+                    colors={['transparent', Colors.overlaySoft]}
                   />
                 </View>
               </View>
@@ -530,10 +532,10 @@ export default function ChenScreen() {
               {isThinking && (
                 <Animated.View style={{ alignSelf: 'flex-start', marginBottom: 14 }}>
                   <View style={{
-                    backgroundColor: 'rgba(255,255,255,0.07)',
+                    backgroundColor: Colors.surfaceMuted,
                     borderRadius: 22,
                     borderWidth: 1,
-                    borderColor: 'rgba(255,255,255,0.1)',
+                    borderColor: Colors.surfaceStrong,
                   }}>
                     <TypingIndicator />
                   </View>
@@ -544,22 +546,22 @@ export default function ChenScreen() {
             {/* ── Input bar ── */}
             <View style={{
               paddingHorizontal: 16,
-              paddingBottom: Platform.OS === 'ios' ? 34 : 20,
+              paddingBottom: tabBarHeight + (Platform.OS === 'ios' ? 8 : 6),
               paddingTop: 12,
               borderTopWidth: 1,
-              borderTopColor: 'rgba(232,100,10,0.08)',
+              borderTopColor: Colors.border,
             }}>
               <View style={{
                 flexDirection: 'row',
                 alignItems: 'flex-end',
-                backgroundColor: 'rgba(255,255,255,0.06)',
+                backgroundColor: Colors.bgGlass,
                 borderRadius: 26,
                 paddingHorizontal: 18,
-                paddingVertical: 10,
+                paddingVertical: 5,
                 borderWidth: 1,
                 borderColor: input.trim()
-                  ? 'rgba(232,100,10,0.25)'
-                  : 'rgba(255,255,255,0.08)',
+                  ? Colors.borderStrong
+                  : Colors.surfaceStrong,
               }}>
                 <TextInput
                   value={input}
@@ -576,6 +578,7 @@ export default function ChenScreen() {
                   multiline
                   maxLength={500}
                   onSubmitEditing={handleSend}
+      
                 />
 
                 <Pressable
@@ -587,7 +590,7 @@ export default function ChenScreen() {
                     borderRadius: 17,
                     backgroundColor: input.trim() && !isThinking && !isLoadingConversation
                       ? Colors.orange
-                      : 'rgba(255,255,255,0.1)',
+                      : Colors.surfaceStrong,
                     alignItems: 'center',
                     justifyContent: 'center',
                     marginLeft: 10,
@@ -600,7 +603,7 @@ export default function ChenScreen() {
                   <IconSymbol
                     name="arrow.up"
                     size={16}
-                    color={input.trim() && !isThinking && !isLoadingConversation ? Colors.white : 'rgba(255,255,255,0.3)'}
+                    color={input.trim() && !isThinking && !isLoadingConversation ? Colors.onAccent : Colors.textMuted}
                   />
                 </Pressable>
               </View>

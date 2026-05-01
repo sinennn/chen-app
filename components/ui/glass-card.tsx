@@ -17,6 +17,10 @@ export function GlassCard({ children, padded = true, style, ...rest }: PropsWith
           backgroundColor: Colors.bgGlass,
           borderColor: Colors.border,
           borderWidth: 1,
+          shadowColor: Colors.orange,
+          shadowOpacity: 0.08,
+          shadowRadius: 14,
+          shadowOffset: { width: 0, height: 8 },
         },
         style,
       ]}
@@ -25,4 +29,3 @@ export function GlassCard({ children, padded = true, style, ...rest }: PropsWith
     </View>
   );
 }
-

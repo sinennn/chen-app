@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -387,6 +388,81 @@ func (sc *SpotifyClient) GetRecentlyPlayed() ([]Track, error) {
 		})
 		return tracks, err
 	})
+}
+
+func (sc *SpotifyClient) GetRecentlyPlayedSince(since time.Time, maxPages int) ([]Track, error) {
+	if maxPages <= 0 {
+		maxPages = 1
+	}
+
+	tracks := make([]Track, 0, 50)
+	beforeCursor := ""
+
+	for page := 0; page < maxPages; page++ {
+		requestURL := "https://api.spotify.com/v1/me/player/recently-played?limit=50"
+		if beforeCursor != "" {
+			requestURL += "&before=" + url.QueryEscape(beforeCursor)
+		}
+
+		body, _, err := sc.doRequest("recently-played", http.MethodGet, requestURL, nil, nil)
+		if err != nil {
+			return tracks, err
+		}
+
+		var response RecentlyPlayedResponse
+		if err := json.Unmarshal(body, &response); err != nil {
+			return tracks, err
+		}
+
+		if len(response.Items) == 0 {
+			break
+		}
+
+		shouldStop := false
+		for _, item := range response.Items {
+			if item.Track.Name == "" || len(item.Track.Artists) == 0 {
+				continue
+			}
+
+			playedAt, err := time.Parse(time.RFC3339, item.PlayedAt)
+			if err != nil {
+				continue
+			}
+			if playedAt.Before(since) {
+				shouldStop = true
+				continue
+			}
+
+			track := Track{
+				ID:         item.Track.ID,
+				Name:       item.Track.Name,
+				Album:      item.Track.Album.Name,
+				Artist:     item.Track.Artists[0].Name,
+				SpotifyURL: item.Track.ExternalURLs.Spotify,
+				PreviewURL: item.Track.PreviewURL,
+				DurationMs: item.Track.DurationMs,
+				PlayedAt:   item.PlayedAt,
+			}
+			if len(item.Track.Album.Images) > 0 {
+				track.AlbumArt = item.Track.Album.Images[0].URL
+			}
+
+			tracks = append(tracks, track)
+		}
+
+		if shouldStop {
+			break
+		}
+
+		lastPlayedAt, err := time.Parse(time.RFC3339, response.Items[len(response.Items)-1].PlayedAt)
+		if err != nil {
+			break
+		}
+
+		beforeCursor = strconv.FormatInt(lastPlayedAt.Add(-time.Millisecond).UnixMilli(), 10)
+	}
+
+	return tracks, nil
 }
 
 func (sc *SpotifyClient) RefreshTokenIfNeeded(refreshToken string) error {

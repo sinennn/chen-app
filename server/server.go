@@ -75,13 +75,13 @@ func main() {
 		})
 	})
 
-	// Swagger UI
+
 	router.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
 	router.GET("/docs/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
 
 	v1 := router.Group("/api/v1")
 	{
-		// Public auth routes (no JWT required)
+	
 		auth.RegisterPublicRoutes(v1.Group("/auth"))
 
 		protected := v1.Group("")
@@ -102,8 +102,6 @@ func main() {
 			reactions.RegisterRoutes(protected.Group("/reactions"))
 		}
 	}
-
-	// Admin endpoints — protected by X-Admin-Secret header, outside /api/v1.
 	adminGroup := router.Group("/admin")
 	adminGroup.Use(admin.AdminMiddleware())
 	admin.RegisterRoutes(adminGroup)

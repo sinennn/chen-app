@@ -81,6 +81,7 @@ type PublicProfileResponse struct {
 }
 
 const maxReasonableListeningDurationMs = 2 * 60 * 60 * 1000
+const spotifyRecentStatsPageLimit = 6
 
 func RegisterProfileRoutes(rg *gin.RouterGroup) {
 	rg.GET("/stats", getStats)
@@ -104,13 +105,78 @@ func getStats(c *gin.Context) {
 		return
 	}
 
-	stats, err := deriveStatsFromListeningActivity(c.Request.Context(), userID)
+	stats, err := deriveProfileStats(c.Request.Context(), userID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch profile stats"})
 		return
 	}
 
 	c.JSON(http.StatusOK, stats)
+}
+
+func deriveProfileStats(ctx context.Context, userID string) (ProfileStats, error) {
+	stats, err := deriveStatsFromSpotifyRecentHistory(ctx, userID)
+	if err == nil {
+		return stats, nil
+	}
+
+	if !errors.Is(err, spotify.ErrNoSpotifyConnection) && !spotify.IsRateLimitError(err) {
+		log.Printf("profile stats: spotify recent history failed for user %s, falling back to listening_activity: %v", userID, err)
+	}
+
+	return deriveStatsFromListeningActivity(ctx, userID)
+}
+
+func deriveStatsFromSpotifyRecentHistory(ctx context.Context, userID string) (ProfileStats, error) {
+	stats := ProfileStats{TopGenre: "--"}
+
+	spotifyClient, _, err := spotify.GetAuthorizedClient(userID)
+	if err != nil {
+		return stats, err
+	}
+
+	weekAgo := time.Now().Add(-7 * 24 * time.Hour)
+	tracks, err := spotifyClient.GetRecentlyPlayedSince(weekAgo, spotifyRecentStatsPageLimit)
+	if err != nil {
+		return stats, err
+	}
+
+	return buildProfileStatsFromSpotifyTracks(ctx, tracks, weekAgo)
+}
+
+func buildProfileStatsFromSpotifyTracks(ctx context.Context, tracks []spotify.Track, weekAgo time.Time) (ProfileStats, error) {
+	stats := ProfileStats{TopGenre: "--"}
+	artistCounts := make(map[string]int)
+	totalDurationMs := 0
+	for _, track := range tracks {
+		playedAt, err := time.Parse(time.RFC3339, track.PlayedAt)
+		if err != nil || playedAt.Before(weekAgo) {
+			continue
+		}
+
+		artistName := strings.TrimSpace(track.Artist)
+		if artistName != "" {
+			artistCounts[artistName]++
+		}
+
+		if track.DurationMs > 0 && track.DurationMs <= maxReasonableListeningDurationMs {
+			totalDurationMs += track.DurationMs
+		}
+	}
+
+	stats.MinutesListened = totalDurationMs / 60000
+	stats.ArtistsPlayed = len(artistCounts)
+
+	lastfmClient, lastfmErr := lastfm.NewClientFromEnv()
+	if lastfmErr == nil {
+		if topGenre := deriveTopGenreFromLastFM(ctx, lastfmClient, artistCounts); topGenre != "" {
+			stats.TopGenre = topGenre
+		}
+	} else if !errors.Is(lastfmErr, lastfm.ErrNotConfigured) {
+		return stats, fmt.Errorf("failed to resolve top genre from last.fm: %w", lastfmErr)
+	}
+
+	return stats, nil
 }
 
 func deriveStatsFromListeningActivity(ctx context.Context, userID string) (ProfileStats, error) {

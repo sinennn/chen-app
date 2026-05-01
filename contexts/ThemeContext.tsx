@@ -8,7 +8,7 @@ import {
   ThemeDefinitions,
   ThemeKey,
 } from '@/constants/theme';
-import { createContext, useContext, useEffect, useMemo, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 
 const STORAGE_KEY = 'chen_theme_preference';
 
@@ -55,23 +55,21 @@ export function AppThemeProvider({ children }: { children: React.ReactNode }) {
     };
   }, [isThemeUnlocked, profile?.theme_preference]);
 
-  useEffect(() => {
-    applyTheme(themeKey);
-  }, [themeKey]);
+  applyTheme(themeKey);
 
-  const setThemeKey = async (nextThemeKey: ThemeKey) => {
+  const setThemeKey = useCallback(async (nextThemeKey: ThemeKey) => {
     const normalizedTheme = normalizeThemeKey(nextThemeKey);
     const resolvedTheme = isThemeUnlocked(normalizedTheme) ? normalizedTheme : DEFAULT_THEME_KEY;
     setThemeKeyState(resolvedTheme);
     await AsyncStorage.setItem(STORAGE_KEY, resolvedTheme);
-  };
+  }, [isThemeUnlocked]);
 
   const value = useMemo(
     () => ({
       themeKey,
       setThemeKey,
     }),
-    [themeKey]
+    [themeKey, setThemeKey]
   );
 
   return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;

@@ -66,7 +66,7 @@ function Row({
   right,
   labelColor = Colors.textPrimary,
   iconColor = Colors.orange,
-  iconBg = 'rgba(232,100,10,0.1)',
+  iconBg = Colors.accentSurface,
   danger = false,
 }: {
   icon: keyof typeof Ionicons.glyphMap;
@@ -85,10 +85,10 @@ function Row({
       style={{
         flexDirection: 'row',
         alignItems: 'center',
-        backgroundColor: danger ? 'rgba(231,76,60,0.05)' : 'rgba(255,255,255,0.04)',
+        backgroundColor: danger ? 'rgba(231,76,60,0.08)' : Colors.surfaceSoft,
         borderRadius: 14,
         borderWidth: 1,
-        borderColor: danger ? 'rgba(231,76,60,0.12)' : 'rgba(232,100,10,0.09)',
+        borderColor: danger ? 'rgba(231,76,60,0.18)' : Colors.border,
         paddingVertical: 13,
         paddingHorizontal: 14,
         marginBottom: 7,
@@ -147,18 +147,17 @@ function ThemeCard({
 
   return (
     <TouchableOpacity onPress={onPress} activeOpacity={0.8} style={{ marginRight: 10 }}>
-      {/* Glow halo */}
       {isActive && (
         <Animated.View style={{
           position: 'absolute',
           top: -3, left: -3, right: -3, bottom: -3,
           borderRadius: 21,
-          backgroundColor: theme.accent,
+          backgroundColor: theme.accentSecondary,
           opacity: glow,
-          shadowColor: theme.accent,
+          shadowColor: theme.accentSecondary,
           shadowOffset: { width: 0, height: 0 },
-          shadowOpacity: 1,
-          shadowRadius: 14,
+          shadowOpacity: 0.65,
+          shadowRadius: 18,
           elevation: 12,
         }} />
       )}
@@ -169,32 +168,98 @@ function ThemeCard({
         borderRadius: 18,
         overflow: 'hidden',
         borderWidth: isActive ? 1.5 : 1,
-        borderColor: isActive ? theme.accent : 'rgba(255,255,255,0.07)',
+        borderColor: isActive ? theme.accentSecondary : `${theme.accentSecondary}22`,
       }}>
         <LinearGradient
-          colors={[`${theme.accent}22`, theme.bg === '#0D0B09' ? '#141210' : theme.bg]}
+          colors={[theme.pageTop, theme.pageMiddle, theme.pageBottom]}
           start={{ x: 0, y: 0 }}
           end={{ x: 1, y: 1 }}
           style={{ flex: 1, padding: 12, justifyContent: 'space-between' }}
         >
+          <View
+            style={{
+              position: 'absolute',
+              top: -18,
+              right: -12,
+              width: 72,
+              height: 72,
+              borderRadius: 36,
+              backgroundColor: theme.heroFrom,
+            }}
+          />
+          <View
+            style={{
+              position: 'absolute',
+              bottom: -20,
+              left: -8,
+              width: 58,
+              height: 58,
+              borderRadius: 29,
+              backgroundColor: theme.heroTo,
+            }}
+          />
           <View style={{
             width: 48,
             height: 48,
-            borderRadius: 24,
-            backgroundColor: theme.accent,
-            shadowColor: theme.accent,
-            shadowOffset: { width: 0, height: 6 },
-            shadowOpacity: 0.7,
-            shadowRadius: 12,
-            elevation: 10,
+            borderRadius: 16,
+            backgroundColor: theme.bgElevated,
+            borderWidth: 1,
+            borderColor: `${theme.accentSecondary}44`,
+            overflow: 'hidden',
           }} />
+          <LinearGradient
+            colors={[theme.accent, theme.accentSecondary]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={{
+              position: 'absolute',
+              top: 12,
+              left: 12,
+              width: 48,
+              height: 48,
+              borderRadius: 16,
+            }}
+          />
+          <View
+            style={{
+              position: 'absolute',
+              top: 24,
+              left: 24,
+              width: 24,
+              height: 6,
+              borderRadius: 999,
+              backgroundColor: `${theme.onAccent}55`,
+            }}
+          />
+          <View
+            style={{
+              position: 'absolute',
+              top: 36,
+              left: 24,
+              width: 16,
+              height: 6,
+              borderRadius: 999,
+              backgroundColor: `${theme.onAccent}33`,
+            }}
+          />
 
           <View>
-            <Text style={{ color: Colors.textPrimary, fontSize: 11, fontWeight: '700', marginBottom: 2 }}>
+            <Text style={{ color: theme.textPrimary, fontSize: 11, fontWeight: '700', marginBottom: 2 }}>
               {theme.name}
             </Text>
+            <Text style={{ color: theme.textSecondary, fontSize: 9, marginBottom: 3 }}>
+              {themeKey === 'default'
+                ? 'Warm noir'
+                : themeKey === 'lagosNight'
+                  ? 'Neon city'
+                  : themeKey === 'harmattan'
+                    ? 'Dust gold'
+                    : themeKey === 'midnightAfro'
+                      ? 'Lush midnight'
+                      : 'Velvet red'}
+            </Text>
             {isActive && (
-              <Text style={{ color: theme.accent, fontSize: 9, fontWeight: '700', letterSpacing: 0.6, textTransform: 'uppercase' }}>
+              <Text style={{ color: theme.accentSecondary, fontSize: 9, fontWeight: '700', letterSpacing: 0.6, textTransform: 'uppercase' }}>
                 Active
               </Text>
             )}
@@ -215,11 +280,11 @@ function ThemeCard({
         {isLocked && (
           <View style={{
             position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
-            backgroundColor: 'rgba(0,0,0,0.6)',
+            backgroundColor: theme.bgGlass,
             alignItems: 'center', justifyContent: 'center',
           }}>
-            <Ionicons name="lock-closed" size={18} color="rgba(255,255,255,0.6)" />
-            <Text style={{ color: 'rgba(255,255,255,0.45)', fontSize: 9, fontWeight: '700', marginTop: 4, letterSpacing: 0.8, textTransform: 'uppercase' }}>
+            <Ionicons name="lock-closed" size={18} color={theme.textSecondary} />
+            <Text style={{ color: theme.textMuted, fontSize: 9, fontWeight: '700', marginTop: 4, letterSpacing: 0.8, textTransform: 'uppercase' }}>
               Locked
             </Text>
           </View>
@@ -370,7 +435,7 @@ export default function SettingsScreen() {
         style={{ flex: 1 }}
       >
         <LinearGradient
-          colors={['rgba(13,11,9,0.82)', 'rgba(13,11,9,0.93)', 'rgba(13,11,9,0.98)']}
+          colors={[Colors.bgCanvasTop, Colors.bgCanvasMiddle, Colors.bgCanvasBottom]}
           style={{ flex: 1 }}
         >
           {/* Ambient glow */}
@@ -391,14 +456,14 @@ export default function SettingsScreen() {
                 paddingHorizontal: 20,
                 paddingVertical: 12,
                 borderBottomWidth: 1,
-                borderBottomColor: 'rgba(232,100,10,0.08)',
+                borderBottomColor: Colors.border,
               }}>
                 <TouchableOpacity
                   onPress={() => router.back()}
                   style={{
                     width: 34, height: 34, borderRadius: 17,
-                    backgroundColor: 'rgba(255,255,255,0.06)',
-                    borderWidth: 1, borderColor: 'rgba(232,100,10,0.12)',
+                    backgroundColor: Colors.surfaceMuted,
+                    borderWidth: 1, borderColor: Colors.borderStrong,
                     alignItems: 'center', justifyContent: 'center',
                   }}
                 >
@@ -425,15 +490,15 @@ export default function SettingsScreen() {
               {/* ── Profile hero ── */}
               <FadeSlide delay={60}>
                 <View style={{ marginTop: 20 }}>
-                  <View style={{
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                    backgroundColor: 'rgba(255,255,255,0.04)',
-                    borderRadius: 20,
-                    borderWidth: 1,
-                    borderColor: 'rgba(232,100,10,0.12)',
-                    padding: 14,
-                  }}>
+                <View style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  backgroundColor: Colors.surfaceSoft,
+                  borderRadius: 20,
+                  borderWidth: 1,
+                  borderColor: Colors.border,
+                  padding: 14,
+                }}>
                     <View style={{ position: 'relative', marginRight: 14 }}>
                       <View style={{
                         position: 'absolute',
@@ -519,11 +584,11 @@ export default function SettingsScreen() {
                 <Label>Referral Unlocks</Label>
                 <View style={{
                   borderRadius: 18, overflow: 'hidden',
-                  borderWidth: 1, borderColor: 'rgba(232,100,10,0.18)',
+                  borderWidth: 1, borderColor: Colors.borderStrong,
                   marginBottom: 12,
                 }}>
                   <LinearGradient
-                    colors={['rgba(232,100,10,0.13)', 'rgba(232,100,10,0.03)', '#0D0B09']}
+                    colors={[Colors.bgHeroFrom, Colors.bgHeroTo, Colors.bgCard]}
                     start={{ x: 0, y: 0 }} end={{ x: 0, y: 1 }}
                     style={{ padding: 18 }}
                   >
@@ -543,8 +608,8 @@ export default function SettingsScreen() {
                   <View style={{
                     borderRadius: 18,
                     borderWidth: 1,
-                    borderColor: 'rgba(232,100,10,0.12)',
-                    backgroundColor: 'rgba(255,255,255,0.04)',
+                    borderColor: Colors.border,
+                    backgroundColor: Colors.surfaceSoft,
                     padding: 18,
                     marginBottom: 8,
                   }}>
@@ -557,8 +622,8 @@ export default function SettingsScreen() {
                       style={{
                         borderRadius: 18,
                         borderWidth: 1,
-                        borderColor: perk.unlocked ? 'rgba(39,174,96,0.24)' : 'rgba(232,100,10,0.12)',
-                        backgroundColor: 'rgba(255,255,255,0.04)',
+                        borderColor: perk.unlocked ? 'rgba(39,174,96,0.24)' : Colors.border,
+                        backgroundColor: Colors.surfaceSoft,
                         padding: 16,
                         marginBottom: 10,
                       }}
@@ -576,7 +641,7 @@ export default function SettingsScreen() {
                           paddingHorizontal: 10,
                           paddingVertical: 6,
                           borderRadius: 999,
-                          backgroundColor: perk.unlocked ? 'rgba(39,174,96,0.14)' : 'rgba(232,100,10,0.12)',
+                          backgroundColor: perk.unlocked ? 'rgba(39,174,96,0.14)' : Colors.accentSurface,
                         }}>
                           <Text style={{ color: perk.unlocked ? Colors.success : Colors.orange, fontSize: 11, fontWeight: '800' }}>
                             {perk.completed_referrals}/{perk.required_referrals}
@@ -589,12 +654,12 @@ export default function SettingsScreen() {
                         onPress={() => sharePerk(perk.key)}
                         disabled={!status?.referral_code}
                         style={{
-                          backgroundColor: perk.unlocked ? 'rgba(255,255,255,0.06)' : Colors.orange,
+                          backgroundColor: perk.unlocked ? Colors.surfaceMuted : Colors.orange,
                           borderRadius: 13,
                           paddingVertical: 13,
                           alignItems: 'center',
                           borderWidth: 1,
-                          borderColor: perk.unlocked ? 'rgba(255,255,255,0.08)' : Colors.orange,
+                          borderColor: perk.unlocked ? Colors.surfaceStrong : Colors.orange,
                         }}
                       >
                         <Text style={{ color: perk.unlocked ? Colors.textPrimary : '#fff', fontSize: 13, fontWeight: '700' }}>
@@ -623,7 +688,7 @@ export default function SettingsScreen() {
                 <Row
                   icon="log-out-outline" label="Sign Out"
                   labelColor={Colors.orange} iconColor={Colors.orange}
-                  iconBg="rgba(232,100,10,0.08)"
+                  iconBg={Colors.accentSurface}
                   onPress={handleSignOut}
                 />
                 <Row

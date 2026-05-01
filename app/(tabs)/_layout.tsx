@@ -1,6 +1,7 @@
 import { Redirect, Tabs } from 'expo-router';
+import { BlurView } from 'expo-blur';
 import { useEffect, useRef } from 'react';
-import { ActivityIndicator, View } from 'react-native';
+import { ActivityIndicator, StyleSheet, View } from 'react-native';
 
 const { Animated } = require('react-native');
 
@@ -66,9 +67,28 @@ export default function TabsLayout() {
         tabBarActiveTintColor: Colors.orange,
         tabBarInactiveTintColor: Colors.textMuted,
         tabBarButton: HapticTab,
+        tabBarBackground: () => (
+          <View style={StyleSheet.absoluteFill}>
+            <BlurView intensity={34} tint="dark" style={StyleSheet.absoluteFill} />
+            <View
+              style={[
+                StyleSheet.absoluteFill,
+                {
+                  backgroundColor: Colors.bgTabBar,
+                  borderTopColor: Colors.border,
+                  borderTopWidth: 1,
+                },
+              ]}
+            />
+          </View>
+        ),
         tabBarStyle: {
-          backgroundColor: '#000106ff',
-          borderTopColor: Colors.border,
+          position: 'absolute',
+          backgroundColor: 'transparent',
+          borderTopColor: 'transparent',
+          borderTopWidth: 0,
+          elevation: 0,
+          shadowColor: 'transparent',
         },
       }}
     >

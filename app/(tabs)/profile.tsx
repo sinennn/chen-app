@@ -38,7 +38,7 @@ function SectionLabel({ children }: { children: string }) {
 
 function Card({ children, style = {} }: { children: React.ReactNode; style?: any }) {
   return (
-    <View style={[{ backgroundColor: 'rgba(255,255,255,0.04)', borderRadius: 20, padding: 16, borderWidth: 1, borderColor: 'rgba(232, 100, 10, 0.12)' }, style]}>
+    <View style={[{ backgroundColor: Colors.surfaceSoft, borderRadius: 20, padding: 16, borderWidth: 1, borderColor: Colors.border }, style]}>
       {children}
     </View>
   );
@@ -542,17 +542,17 @@ export default function ProfileScreen() {
         blurRadius={30}
       />
       <LinearGradient
-        colors={['rgba(13,11,9,0.5)', 'rgba(13,11,9,0.85)', Colors.bg]}
+        colors={[Colors.bgHeroFrom, Colors.overlaySoft, Colors.bg]}
         style={{ position: 'absolute', width: '100%', height: 300, top: 0 }}
       />
 
       {/* Header */}
       <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingTop: 60, paddingBottom: 8 }}>
-        <Pressable style={{ width: 38, height: 38, borderRadius: 19, backgroundColor: 'rgba(255,255,255,0.06)', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: 'rgba(232,100,10,0.15)' }}>
+        <Pressable style={{ width: 38, height: 38, borderRadius: 19, backgroundColor: Colors.surfaceMuted, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: Colors.borderStrong }}>
           <IconSymbol name="chevron.left" size={18} color={Colors.textSecondary} />
         </Pressable>
         <Text style={{ fontSize: 11, fontWeight: '700', color: Colors.textMuted, letterSpacing: 2.5, textTransform: 'uppercase' }}>Profile</Text>
-        <Pressable onPress={() => router.push('/settings')} style={{ width: 38, height: 38, borderRadius: 19, backgroundColor: 'rgba(255,255,255,0.06)', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: 'rgba(232,100,10,0.15)' }}>
+        <Pressable onPress={() => router.push('/settings')} style={{ width: 38, height: 38, borderRadius: 19, backgroundColor: Colors.surfaceMuted, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: Colors.borderStrong }}>
           <IconSymbol name="gearshape" size={16} color={Colors.textSecondary} />
         </Pressable>
       </View>
@@ -562,7 +562,7 @@ export default function ProfileScreen() {
         {/* Hero */}
         <FadeSlide delay={0}>
           <View style={{ alignItems: 'center', paddingTop: 20, paddingBottom: 28, paddingHorizontal: 20 }}>
-            <Animated.View style={{ position: 'absolute', top: 6, width: 140, height: 140, borderRadius: 70, backgroundColor: 'rgba(232,100,10,0.2)', opacity: glowOpacity }} />
+            <Animated.View style={{ position: 'absolute', top: 6, width: 140, height: 140, borderRadius: 70, backgroundColor: Colors.bgHeroFrom, opacity: glowOpacity }} />
             <Animated.View style={{ opacity: avatarOpacity, transform: [{ scale: avatarScale }], marginBottom: 16 }}>
               <Image
                 source={{ uri: currentUser.getAvatarUri(120) }}
@@ -590,8 +590,8 @@ export default function ProfileScreen() {
 
           {/* Now Playing */}
           <FadeSlide delay={100}>
-            <View style={{ borderRadius: 20, overflow: 'hidden', borderWidth: 1, borderColor: 'rgba(232,100,10,0.2)' }}>
-              <LinearGradient colors={['rgba(232,100,10,0.18)', 'rgba(232,100,10,0.04)', 'transparent']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={{ padding: 16 }}>
+            <View style={{ borderRadius: 20, overflow: 'hidden', borderWidth: 1, borderColor: Colors.borderStrong }}>
+              <LinearGradient colors={[Colors.bgHeroFrom, Colors.bgHeroTo, 'transparent']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={{ padding: 16 }}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 14 }}>
                   <SectionLabel>{playbackLabel}</SectionLabel>
                   {isNowPlayingLive && <LiveDot />}
@@ -600,7 +600,7 @@ export default function ProfileScreen() {
                   {hasImageURI(featuredPlayback?.album_art_url) ? (
                     <Image source={{ uri: featuredPlayback.album_art_url }} style={{ width: 70, height: 70, borderRadius: 14, marginRight: 14 }} />
                   ) : (
-                    <View style={{ width: 70, height: 70, borderRadius: 14, marginRight: 14, backgroundColor: 'rgba(255,255,255,0.06)', alignItems: 'center', justifyContent: 'center' }}>
+                    <View style={{ width: 70, height: 70, borderRadius: 14, marginRight: 14, backgroundColor: Colors.surfaceMuted, alignItems: 'center', justifyContent: 'center' }}>
                       <Text style={{ color: Colors.textMuted, fontSize: 24 }}>♪</Text>
                     </View>
                   )}
@@ -666,19 +666,19 @@ export default function ProfileScreen() {
                         <Pressable
                           key={rank}
                           onPress={() => setLockedArtistRank(rank)}
-                          style={{
-                            width: 120,
-                            height: 130,
+                        style={{
+                          width: 120,
+                          height: 130,
                             borderRadius: 18,
                             overflow: 'hidden',
-                            marginHorizontal: 5,
-                            borderWidth: 1,
-                            borderColor: 'rgba(232,100,10,0.14)',
-                            backgroundColor: 'rgba(255,255,255,0.03)',
-                          }}
-                        >
-                          <LinearGradient
-                            colors={['rgba(232,100,10,0.16)', 'rgba(255,255,255,0.05)', 'rgba(255,255,255,0.02)']}
+                          marginHorizontal: 5,
+                          borderWidth: 1,
+                          borderColor: Colors.borderStrong,
+                          backgroundColor: Colors.surfaceSoft,
+                        }}
+                      >
+                        <LinearGradient
+                          colors={[Colors.bgHeroFrom, Colors.surfaceMuted, Colors.surfaceSoft]}
                             start={{ x: 0, y: 0 }}
                             end={{ x: 1, y: 1 }}
                             style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}
@@ -692,7 +692,7 @@ export default function ProfileScreen() {
                               width: 92,
                               height: 92,
                               borderRadius: 46,
-                              backgroundColor: 'rgba(232,100,10,0.07)',
+                              backgroundColor: Colors.accentSurface,
                             }}
                           />
 
@@ -704,7 +704,7 @@ export default function ProfileScreen() {
                               width: 82,
                               height: 82,
                               borderRadius: 41,
-                              backgroundColor: 'rgba(255,255,255,0.03)',
+                              backgroundColor: Colors.surfaceSoft,
                             }}
                           />
 
@@ -717,7 +717,7 @@ export default function ProfileScreen() {
                               bottom: 16,
                               borderRadius: 16,
                               borderWidth: 1,
-                              borderColor: 'rgba(255,255,255,0.05)',
+                              borderColor: Colors.surfaceStrong,
                             }}
                           />
 
@@ -736,9 +736,9 @@ export default function ProfileScreen() {
                                 borderRadius: 43,
                                 alignItems: 'center',
                                 justifyContent: 'center',
-                                backgroundColor: 'rgba(255,255,255,0.04)',
+                                backgroundColor: Colors.surfaceMuted,
                                 borderWidth: 1,
-                                borderColor: 'rgba(232,100,10,0.18)',
+                                borderColor: Colors.borderStrong,
                                 shadowColor: Colors.orange,
                                 shadowOpacity: 0.16,
                                 shadowRadius: 18,
@@ -751,11 +751,11 @@ export default function ProfileScreen() {
                                   width: 54,
                                   height: 54,
                                   borderRadius: 27,
-                                  backgroundColor: 'rgba(232,100,10,0.08)',
+                                  backgroundColor: Colors.accentSurface,
                                 }}
                               />
                               <IconSymbol name="lock.fill" size={36} color={Colors.orange} />
-                              <Text style={{ position: 'absolute', bottom: 6, right: 8, color: 'rgba(232,100,10,0.8)', fontSize: 26, fontWeight: '900', lineHeight: 28 }}>{rank}</Text>
+                              <Text style={{ position: 'absolute', bottom: 6, right: 8, color: Colors.accentSecondary, fontSize: 26, fontWeight: '900', lineHeight: 28 }}>{rank}</Text>
                             </View>
                           </View>
                         </Pressable>
@@ -763,27 +763,27 @@ export default function ProfileScreen() {
                     }
 
                     return (
-                      <Pressable key={rank} style={{ width: 120, height: 130, borderRadius: 18, overflow: 'hidden', marginHorizontal: 5, borderWidth: 1, borderColor: 'rgba(232,100,10,0.1)' }}>
+                      <Pressable key={rank} style={{ width: 120, height: 130, borderRadius: 18, overflow: 'hidden', marginHorizontal: 5, borderWidth: 1, borderColor: Colors.border }}>
                         {hasImageURI(artist?.images?.[0]?.url) ? (
                           <Image source={{ uri: artist.images[0].url }} style={{ width: '100%', height: '100%', position: 'absolute' }} />
                         ) : (
-                          <View style={{ width: '100%', height: '100%', position: 'absolute', backgroundColor: 'rgba(255,255,255,0.06)', alignItems: 'center', justifyContent: 'center', padding: 12 }}>
+                          <View style={{ width: '100%', height: '100%', position: 'absolute', backgroundColor: Colors.surfaceMuted, alignItems: 'center', justifyContent: 'center', padding: 12 }}>
                             <Text style={{ color: Colors.textMuted, fontSize: 24, marginBottom: 8 }}>♪</Text>
                             <Text style={{ color: Colors.textMuted, fontSize: 11, textAlign: 'center' }}>Still shaping this slot</Text>
                           </View>
                         )}
-                        <LinearGradient colors={['transparent', 'rgba(0,0,0,0.85)']} style={{ position: 'absolute', bottom: 0, left: 0, right: 0, paddingHorizontal: 10, paddingBottom: 8, paddingTop: 30 }}>
+                        <LinearGradient colors={['transparent', Colors.overlay]} style={{ position: 'absolute', bottom: 0, left: 0, right: 0, paddingHorizontal: 10, paddingBottom: 8, paddingTop: 30 }}>
                           <Text numberOfLines={1} style={{ color: Colors.textPrimary, fontSize: 12, fontWeight: '700' }}>
                             {artist?.name || `Top Artist #${rank}`}
                           </Text>
                         </LinearGradient>
-                        <Text style={{ position: 'absolute', bottom: 6, right: 8, color: 'rgba(232,100,10,0.8)', fontSize: 26, fontWeight: '900', lineHeight: 28 }}>{rank}</Text>
+                        <Text style={{ position: 'absolute', bottom: 6, right: 8, color: Colors.accentSecondary, fontSize: 26, fontWeight: '900', lineHeight: 28 }}>{rank}</Text>
                       </Pressable>
                     );
                   })}
                 </ScrollView>
               ) : (
-                <View style={{ height: 130, borderRadius: 18, backgroundColor: 'rgba(255,255,255,0.03)', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: 'rgba(232,100,10,0.08)' }}>
+                <View style={{ height: 130, borderRadius: 18, backgroundColor: Colors.surfaceSoft, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: Colors.border }}>
                   <Text style={{ color: Colors.textMuted, fontSize: 13 }}>Connect Spotify to see your top artists</Text>
                 </View>
               )}
@@ -795,12 +795,12 @@ export default function ProfileScreen() {
             <Card>
               <SectionLabel>Top Tracks</SectionLabel>
               {topTracks.length > 0 ? topTracks.slice(0, 3).map((track, i) => (
-                <Pressable key={i} style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 11, borderBottomWidth: i < 2 ? 1 : 0, borderBottomColor: 'rgba(255,255,255,0.06)' }}>
+                <Pressable key={i} style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 11, borderBottomWidth: i < 2 ? 1 : 0, borderBottomColor: Colors.surfaceStrong }}>
                   <Text style={{ color: Colors.textMuted, fontSize: 13, fontWeight: '700', width: 20, marginRight: 10 }}>{i + 1}</Text>
                   {hasImageURI(track.imageUrl || track.image_url || track.album_art_url) ? (
                     <Image source={{ uri: track.imageUrl || track.image_url || track.album_art_url }} style={{ width: 46, height: 46, borderRadius: 10, marginRight: 12 }} />
                   ) : (
-                    <View style={{ width: 46, height: 46, borderRadius: 10, marginRight: 12, backgroundColor: 'rgba(255,255,255,0.06)', alignItems: 'center', justifyContent: 'center' }}>
+                    <View style={{ width: 46, height: 46, borderRadius: 10, marginRight: 12, backgroundColor: Colors.surfaceMuted, alignItems: 'center', justifyContent: 'center' }}>
                       <Text style={{ color: Colors.textMuted, fontSize: 18 }}>♪</Text>
                     </View>
                   )}
@@ -808,7 +808,7 @@ export default function ProfileScreen() {
                     <Text style={{ color: Colors.textPrimary, fontSize: 14, fontWeight: '600', marginBottom: 2 }}>{track.name}</Text>
                     <Text style={{ color: Colors.textSecondary, fontSize: 12 }}>{track.artist}</Text>
                   </View>
-                  <IconSymbol name="play.fill" size={14} color="rgba(232,100,10,0.5)" />
+                  <IconSymbol name="play.fill" size={14} color={Colors.accentSecondary} />
                 </Pressable>
               )) : <EmptyState message="No top tracks yet" />}
             </Card>
@@ -840,7 +840,7 @@ export default function ProfileScreen() {
                             height: 120,
                             borderRadius: 7,
                             borderWidth: 1,
-                            borderColor: 'rgba(232,100,10,0.14)',
+                            borderColor: Colors.borderStrong,
                             marginBottom: 10,
                           }}
                         />
@@ -851,9 +851,9 @@ export default function ProfileScreen() {
                             height: 120,
                             borderRadius: 7,
                             borderWidth: 1,
-                            borderColor: 'rgba(232,100,10,0.14)',
+                            borderColor: Colors.borderStrong,
                             marginBottom: 10,
-                            backgroundColor: 'rgba(255,255,255,0.05)',
+                            backgroundColor: Colors.surfaceMuted,
                             alignItems: 'center',
                             justifyContent: 'center',
                           }}
@@ -888,7 +888,7 @@ export default function ProfileScreen() {
                   ))}
                 </ScrollView>
               ) : (
-                <View style={{ height: 126, borderRadius: 20, backgroundColor: 'rgba(255,255,255,0.03)', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: 'rgba(232,100,10,0.08)' }}>
+                <View style={{ height: 126, borderRadius: 20, backgroundColor: Colors.surfaceSoft, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: Colors.border }}>
                   <Text style={{ color: Colors.textMuted, fontSize: 13 }}>No recent tracks</Text>
                 </View>
               )}
@@ -920,12 +920,12 @@ export default function ProfileScreen() {
                             style={{ width: '100%', height: 138 }}
                           />
                         ) : (
-                          <View style={{ width: '100%', height: 138, backgroundColor: 'rgba(255,255,255,0.05)', alignItems: 'center', justifyContent: 'center' }}>
+                          <View style={{ width: '100%', height: 138, backgroundColor: Colors.surfaceMuted, alignItems: 'center', justifyContent: 'center' }}>
                             <Text style={{ color: Colors.textMuted, fontSize: 24 }}>♪</Text>
                           </View>
                         )}
                         <LinearGradient
-                          colors={['transparent', 'rgba(7,8,12,0.88)']}
+                          colors={['transparent', Colors.overlay]}
                           style={{
                             position: 'absolute',
                             left: 0,
@@ -942,9 +942,9 @@ export default function ProfileScreen() {
                             paddingHorizontal: 8,
                             paddingVertical: 4,
                             borderRadius: 999,
-                            backgroundColor: 'rgba(7,8,12,0.62)',
+                            backgroundColor: Colors.overlaySoft,
                             borderWidth: 1,
-                            borderColor: 'rgba(255,255,255,0.12)',
+                            borderColor: Colors.surfaceStrong,
                           }}
                         >
                           <Text style={{ color: Colors.orange, fontSize: 10, fontWeight: '700' }}>
@@ -981,7 +981,7 @@ export default function ProfileScreen() {
                   ))}
                 </ScrollView>
               ) : (
-                <View style={{ height: 126, borderRadius: 20, backgroundColor: 'rgba(255,255,255,0.03)', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: 'rgba(232,100,10,0.08)' }}>
+                <View style={{ height: 126, borderRadius: 20, backgroundColor: Colors.surfaceSoft, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: Colors.border }}>
                   <Text style={{ color: Colors.textMuted, fontSize: 13 }}>No recommendations yet</Text>
                 </View>
               )}
@@ -993,12 +993,12 @@ export default function ProfileScreen() {
             <Card>
               <SectionLabel>Taste Network</SectionLabel>
               {friends.length > 0 ? friends.map((friend, i) => (
-                <Pressable key={i} style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 11, borderBottomWidth: i < friends.length - 1 ? 1 : 0, borderBottomColor: 'rgba(255,255,255,0.06)' }}>
-                  <Image source={{ uri: `https://api.dicebear.com/7.x/adventurer/png?seed=${friend.avatar_id}&size=50&backgroundColor=0D0B09` }} style={{ width: 40, height: 40, borderRadius: 20, marginRight: 12, borderWidth: 1.5, borderColor: 'rgba(232,100,10,0.3)' }} />
+                <Pressable key={i} style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 11, borderBottomWidth: i < friends.length - 1 ? 1 : 0, borderBottomColor: Colors.surfaceStrong }}>
+                  <Image source={{ uri: `https://api.dicebear.com/7.x/adventurer/png?seed=${friend.avatar_id}&size=50&backgroundColor=0D0B09` }} style={{ width: 40, height: 40, borderRadius: 20, marginRight: 12, borderWidth: 1.5, borderColor: Colors.borderStrong }} />
                   <View style={{ flex: 1 }}>
                     <Text style={{ color: Colors.textPrimary, fontSize: 14, fontWeight: '600' }}>{friend.username}</Text>
                   </View>
-                  <View style={{ backgroundColor: 'rgba(232,100,10,0.12)', borderRadius: 20, paddingHorizontal: 10, paddingVertical: 4, borderWidth: 1, borderColor: 'rgba(232,100,10,0.25)' }}>
+                  <View style={{ backgroundColor: Colors.accentSurface, borderRadius: 20, paddingHorizontal: 10, paddingVertical: 4, borderWidth: 1, borderColor: Colors.borderStrong }}>
                     <Text style={{ color: Colors.orange, fontSize: 13, fontWeight: '700' }}>{friend.compatibility}%</Text>
                   </View>
                 </Pressable>
@@ -1027,7 +1027,7 @@ export default function ProfileScreen() {
         <View
           style={{
             flex: 1,
-            backgroundColor: 'rgba(0,0,0,0.6)',
+            backgroundColor: Colors.overlay,
             alignItems: 'center',
             justifyContent: 'center',
             paddingHorizontal: 22,
@@ -1045,12 +1045,12 @@ export default function ProfileScreen() {
               borderRadius: 28,
               overflow: 'hidden',
               borderWidth: 1,
-              borderColor: 'rgba(232,100,10,0.18)',
-              backgroundColor: 'rgba(5,8,18,0.96)',
+              borderColor: Colors.borderStrong,
+              backgroundColor: Colors.bgElevated,
             }}
           >
             <LinearGradient
-              colors={['rgba(232,100,10,0.18)', 'rgba(232,100,10,0.04)', 'rgba(255,255,255,0.02)']}
+              colors={[Colors.bgHeroFrom, Colors.surfaceMuted, Colors.surfaceSoft]}
               start={{ x: 0, y: 0 }}
               end={{ x: 1, y: 1 }}
               style={{ padding: 22 }}
@@ -1063,9 +1063,9 @@ export default function ProfileScreen() {
                     borderRadius: 28,
                     alignItems: 'center',
                     justifyContent: 'center',
-                    backgroundColor: 'rgba(255,255,255,0.05)',
+                    backgroundColor: Colors.surfaceMuted,
                     borderWidth: 1,
-                    borderColor: 'rgba(232,100,10,0.2)',
+                    borderColor: Colors.borderStrong,
                   }}
                 >
                   <IconSymbol name="lock.fill" size={24} color={Colors.orange} />
@@ -1079,9 +1079,9 @@ export default function ProfileScreen() {
                     borderRadius: 17,
                     alignItems: 'center',
                     justifyContent: 'center',
-                    backgroundColor: 'rgba(255,255,255,0.05)',
+                    backgroundColor: Colors.surfaceMuted,
                     borderWidth: 1,
-                    borderColor: 'rgba(255,255,255,0.08)',
+                    borderColor: Colors.surfaceStrong,
                   }}
                 >
                   <Text style={{ color: Colors.textPrimary, fontSize: 18, fontWeight: '700' }}>×</Text>
@@ -1099,9 +1099,9 @@ export default function ProfileScreen() {
                 style={{
                   borderRadius: 18,
                   padding: 14,
-                  backgroundColor: 'rgba(255,255,255,0.04)',
+                  backgroundColor: Colors.surfaceSoft,
                   borderWidth: 1,
-                  borderColor: 'rgba(255,255,255,0.08)',
+                  borderColor: Colors.surfaceStrong,
                   marginBottom: 16,
                 }}
               >
@@ -1121,9 +1121,9 @@ export default function ProfileScreen() {
                     borderRadius: 16,
                     paddingVertical: 14,
                     alignItems: 'center',
-                    backgroundColor: 'rgba(255,255,255,0.05)',
+                    backgroundColor: Colors.surfaceMuted,
                     borderWidth: 1,
-                    borderColor: 'rgba(255,255,255,0.08)',
+                    borderColor: Colors.surfaceStrong,
                   }}
                 >
                   <Text style={{ color: Colors.textPrimary, fontSize: 13, fontWeight: '700' }}>
@@ -1140,7 +1140,7 @@ export default function ProfileScreen() {
                     alignItems: 'center',
                     backgroundColor: Colors.orange,
                     borderWidth: 1,
-                    borderColor: 'rgba(255,255,255,0.1)',
+                    borderColor: Colors.surfaceStrong,
                     shadowColor: Colors.orange,
                     shadowOpacity: 0.25,
                     shadowRadius: 14,

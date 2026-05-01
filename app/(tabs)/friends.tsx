@@ -43,7 +43,7 @@ function FriendCard({ friend, index, onPress }: { friend: Friend; index: number;
   }, [fadeAnim, index, pulseAnim, slideAnim]);
 
   const getColor = (score: number) =>
-    score >= 85 ? Colors.orange : score >= 70 ? Colors.success : 'rgba(255,255,255,0.3)';
+    score >= 85 ? Colors.orange : score >= 70 ? Colors.success : Colors.surfaceStrong;
 
   return (
     <Animated.View style={{ opacity: fadeAnim, transform: [{ translateY: slideAnim }], marginRight: 18, width: 150 }}>
@@ -53,9 +53,9 @@ function FriendCard({ friend, index, onPress }: { friend: Friend; index: number;
           borderRadius: 28,
           padding: 16,
           alignItems: 'center',
-          backgroundColor: 'rgba(255,255,255,0.05)',
+          backgroundColor: Colors.surfaceMuted,
           borderWidth: 1,
-          borderColor: 'rgba(255,255,255,0.08)',
+          borderColor: Colors.surfaceStrong,
           shadowColor: getColor(friend.compatibility),
           shadowOffset: { width: 0, height: 10 },
           shadowOpacity: 0.35,
@@ -79,7 +79,7 @@ function FriendCard({ friend, index, onPress }: { friend: Friend; index: number;
                 borderRadius: 8,
                 backgroundColor: Colors.success,
                 borderWidth: 2,
-                borderColor: 'rgba(0,0,0,0.3)',
+                borderColor: Colors.bg,
               }}
             />
           )}
@@ -106,7 +106,7 @@ function FriendCard({ friend, index, onPress }: { friend: Friend; index: number;
         </Animated.View>
 
         <Text
-          style={{ color: 'rgba(255,255,255,0.6)', fontSize: 11, textAlign: 'center', lineHeight: 14 }}
+          style={{ color: Colors.textSecondary, fontSize: 11, textAlign: 'center', lineHeight: 14 }}
           numberOfLines={2}
         >
           {friend.current_track ? `Listening to ${friend.current_track.artist_name}` : 'No active track right now'}
@@ -128,11 +128,11 @@ function FriendListRow({
   return (
     <View
       style={{
-        backgroundColor: 'rgba(255,255,255,0.05)',
+        backgroundColor: Colors.surfaceMuted,
         borderRadius: 24,
         padding: 14,
         borderWidth: 1,
-        borderColor: 'rgba(255,255,255,0.08)',
+        borderColor: Colors.surfaceStrong,
         marginBottom: 12,
       }}
     >
@@ -154,7 +154,7 @@ function FriendListRow({
                   borderRadius: 7,
                   backgroundColor: Colors.success,
                   borderWidth: 2,
-                  borderColor: 'rgba(0,0,0,0.35)',
+                  borderColor: Colors.bg,
                 }}
               />
             ) : null}
@@ -174,12 +174,12 @@ function FriendListRow({
 
         <View
           style={{
-            backgroundColor: 'rgba(232,100,10,0.14)',
+            backgroundColor: Colors.accentSurface,
             borderRadius: 16,
             paddingHorizontal: 10,
             paddingVertical: 6,
             borderWidth: 1,
-            borderColor: 'rgba(232,100,10,0.2)',
+            borderColor: Colors.borderStrong,
           }}
         >
           <Text style={{ color: Colors.orange, fontSize: 12, fontWeight: '700' }}>
@@ -206,13 +206,13 @@ function FriendListRow({
           onPress={onProfilePress}
           style={{
             flex: 1,
-            backgroundColor: 'rgba(255,255,255,0.06)',
+            backgroundColor: Colors.surfaceSoft,
             borderRadius: 18,
             paddingVertical: 12,
             alignItems: 'center',
             justifyContent: 'center',
             borderWidth: 1,
-            borderColor: 'rgba(255,255,255,0.08)',
+            borderColor: Colors.surfaceStrong,
           }}
         >
           <Text style={{ color: Colors.textPrimary, fontSize: 13, fontWeight: '700' }}>Open profile</Text>
@@ -242,16 +242,16 @@ function getDiscoverActionMeta(status: FriendDiscoverResult['relationship_status
     case 'outgoing_pending':
       return {
         label: 'Request sent',
-        backgroundColor: 'rgba(232,100,10,0.12)',
-        borderColor: 'rgba(232,100,10,0.24)',
+        backgroundColor: Colors.accentSurface,
+        borderColor: Colors.borderStrong,
         textColor: Colors.orange,
         disabled: true,
       };
     case 'incoming_pending':
       return {
         label: 'Open profile',
-        backgroundColor: 'rgba(255,255,255,0.08)',
-        borderColor: 'rgba(255,255,255,0.12)',
+        backgroundColor: Colors.surfaceMuted,
+        borderColor: Colors.surfaceStrong,
         textColor: Colors.textPrimary,
         disabled: false,
       };
@@ -298,12 +298,12 @@ function DiscoverUserRow({
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'space-between',
-        backgroundColor: 'rgba(255,255,255,0.04)',
+        backgroundColor: Colors.surfaceSoft,
         borderRadius: 22,
         padding: 14,
         marginBottom: 12,
         borderWidth: 1,
-        borderColor: 'rgba(255,255,255,0.06)',
+        borderColor: Colors.border,
       }}
     >
       <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, marginRight: 12 }}>
@@ -324,7 +324,7 @@ function DiscoverUserRow({
                   borderRadius: 7,
                   backgroundColor: Colors.success,
                   borderWidth: 2,
-                  borderColor: 'rgba(0,0,0,0.35)',
+                  borderColor: Colors.bg,
                 }}
               />
             ) : null}
@@ -400,9 +400,9 @@ function EmptyState({ onAddFriend }: { onAddFriend: () => void }) {
                 width: 64,
                 height: 64,
                 borderRadius: 32,
-                backgroundColor: 'rgba(232,100,10,0.08)',
+                backgroundColor: Colors.accentSurface,
                 borderWidth: 1.5,
-                borderColor: 'rgba(232,100,10,0.18)',
+                borderColor: Colors.borderStrong,
                 alignItems: 'center',
                 justifyContent: 'center',
                 marginLeft: i > 0 ? -16 : 0,
@@ -421,7 +421,7 @@ function EmptyState({ onAddFriend }: { onAddFriend: () => void }) {
               width: 64,
               height: 64,
               borderRadius: 32,
-              backgroundColor: 'rgba(232,100,10,0.1)',
+              backgroundColor: Colors.accentSurface,
               borderWidth: 1.5,
               borderStyle: 'dashed',
               borderColor: Colors.orange,
@@ -665,7 +665,7 @@ export default function FriendsScreen() {
         style={{ flex: 1 }}
         blurRadius={30}
       >
-        <LinearGradient colors={['rgba(0,1,6,0.85)', 'rgba(0,1,6,0.9)', 'rgba(0,1,6,0.95)']} style={{ flex: 1 }}>
+        <LinearGradient colors={[Colors.bgCanvasTop, Colors.bgCanvasMiddle, Colors.bgCanvasBottom]} style={{ flex: 1 }}>
           <View
             style={{
               position: 'absolute',
@@ -697,11 +697,11 @@ export default function FriendsScreen() {
                   width: 40,
                   height: 40,
                   borderRadius: 20,
-                  backgroundColor: 'rgba(255,255,255,0.08)',
+                  backgroundColor: Colors.surfaceMuted,
                   alignItems: 'center',
                   justifyContent: 'center',
                   borderWidth: 1,
-                  borderColor: 'rgba(232,100,10,0.15)',
+                  borderColor: Colors.borderStrong,
                 }}
               >
                 <IconSymbol name="person.badge.plus" size={20} color={Colors.orange} />
@@ -712,11 +712,11 @@ export default function FriendsScreen() {
                   width: 40,
                   height: 40,
                   borderRadius: 20,
-                  backgroundColor: 'rgba(255,255,255,0.08)',
+                  backgroundColor: Colors.surfaceMuted,
                   alignItems: 'center',
                   justifyContent: 'center',
                   borderWidth: 1,
-                  borderColor: 'rgba(232,100,10,0.15)',
+                  borderColor: Colors.borderStrong,
                 }}
               >
                 <IconSymbol name="magnifyingglass" size={20} color={Colors.textSecondary} />
@@ -727,7 +727,7 @@ export default function FriendsScreen() {
           {loading ? (
             <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
               <ActivityIndicator color={Colors.orange} size="large" />
-              <Text style={{ color: 'rgba(255,255,255,0.5)', marginTop: 16, fontSize: 14 }}>
+              <Text style={{ color: Colors.textSecondary, marginTop: 16, fontSize: 14 }}>
                 Loading your network...
               </Text>
             </View>
@@ -806,10 +806,10 @@ export default function FriendsScreen() {
                       alignItems: 'center',
                       paddingVertical: 28,
                       paddingHorizontal: 20,
-                      backgroundColor: 'rgba(255,255,255,0.03)',
+                      backgroundColor: Colors.surfaceSoft,
                       borderRadius: 20,
                       borderWidth: 1,
-                      borderColor: 'rgba(232,100,10,0.08)',
+                      borderColor: Colors.border,
                     }}
                   >
                     <Text style={{ color: Colors.textPrimary, fontSize: 15, fontWeight: '600', marginBottom: 8 }}>
@@ -821,12 +821,12 @@ export default function FriendsScreen() {
                     <Pressable
                       onPress={() => setAddFriendModalVisible(true)}
                       style={{
-                        backgroundColor: 'rgba(232,100,10,0.14)',
+                        backgroundColor: Colors.accentSurface,
                         borderRadius: 18,
                         paddingHorizontal: 18,
                         paddingVertical: 10,
                         borderWidth: 1,
-                        borderColor: 'rgba(232,100,10,0.22)',
+                        borderColor: Colors.borderStrong,
                       }}
                     >
                       <Text style={{ color: Colors.orange, fontWeight: '700', fontSize: 13 }}>Open search</Text>
