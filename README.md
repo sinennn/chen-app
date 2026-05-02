@@ -1,50 +1,116 @@
-# Welcome to your Expo app 👋
+# Chen — Social Music Platform | Technical Deep Dive
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+Chen is a next-generation, AI-powered social music platform engineered for global scale and cultural impact. Chen’s backend is a showcase of modern distributed systems, real-time data streaming, and secure, modular architecture—built to impress both users and technical audiences.
 
-## Get started
+## Why Chen Stands Out
 
-1. Install dependencies
+**Full-Stack Innovation:**
+- Frontend: React Native (Expo), NativeWind, TypeScript, glassmorphism UI, 60fps animations  
+- Backend: Golang (Gin), Supabase (PostgreSQL + Realtime), Groq (Llama 3), Paystack, Expo Push  
 
-   ```bash
-   npm install
-   ```
+**Global-Ready, Culturally Rooted:**  
+Nigeria-focused, but architected for international scale  
 
-2. Start the app
+**AI at the Core:**  
+Context-aware music conversations powered by Llama 3, with real-time context injection and streaming responses  
 
-   ```bash
-   npx expo start
-   ```
+**Real-Time Social Graph:**  
+See what friends are listening to instantly across Spotify, Apple Music, and Audiomack  
 
-In the output, you'll find options to open the app in a
+**Enterprise-Grade Security:**  
+RLS, token encryption, HMAC webhooks, and strict secret management  
 
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
+**Monetization-Ready:**  
+Freemium model, Paystack billing, premium features, and usage analytics  
 
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
+---
 
-## Get a fresh project
+## Backend Architecture: Built for Scale & Speed
 
-When you're ready, run:
+**Golang + Gin:**  
+Ultra-fast, concurrent HTTP server with modular, domain-driven design. Each feature is an isolated package with clear API boundaries.
 
-```bash
-npm run reset-project
-```
+**Supabase (PostgreSQL):**
+- Managed Postgres with instant Realtime subscriptions  
+- Row Level Security (RLS) on every table for NDPC compliance  
+- Auth, storage, and policy-driven access  
 
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
+**Groq (Llama 3):**
+- State-of-the-art LLM for music-aware chat  
+- Context injection:
+  - User’s track  
+  - Friends’ tracks  
+  - Top artists  
+  - Compatibility  
+  - Conversation memory  
+- Token streaming for real-time UX  
 
-## Learn more
+**Paystack:**
+- Webhook-driven premium status  
+- Subscription lifecycle management  
 
-To learn more about developing your project with Expo, look at the following resources:
+**Expo Push:**
+- Unified push notifications for iOS and Android  
+- Triggered by backend events (friend activity, requests, compatibility updates)  
 
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
+---
 
-## Join the community
+## Key Modules
 
-Join our community of developers creating universal apps.
+### Real-Time Data Flow: Zero-Latency Social
 
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+- Backend polling using Gin goroutines every 30 seconds per user  
+- Atomic writes to `listening_activity` (Supabase)  
+- Instant broadcast via Supabase Realtime  
+- Client sync with immediate UI updates (no polling, no lag)  
+
+---
+
+### AI Module (“Chen”): Contextual, Streaming, Human
+
+**Context Injection:**
+- User’s current track  
+- Friends’ current tracks  
+- Top artists (30 days)  
+- Compatibility scores  
+- Last 20 messages (memory)  
+
+**Streaming:**
+- Llama 3 responses streamed token-by-token for real-time chat  
+
+**Rate Limiting:**
+- 10 messages/day (free)  
+- Unlimited (premium)  
+
+---
+
+## Security & Compliance: Enterprise-Grade
+
+- Row Level Security (RLS) on all Supabase tables  
+- OAuth tokens encrypted at rest  
+- All secrets stored in `.env` (never committed)  
+- Paystack webhooks verified with HMAC  
+- Strict rate limiting on AI and API endpoints  
+- Full audit logging for access and actions  
+
+---
+
+## Build & Run
+
+**Install dependencies**
+
+**Start the app**
+
+**Backend:**
+- See `server/chen_backend.md` for Go backend setup and API docs  
+- Copy `.env.example` to `.env` and configure secrets  
+
+---
+
+## Chen, essentially
+
+- Distributed, modular backend with real-time streaming and AI integration  
+- Security-first architecture with RLS, encryption, and compliance practices  
+- Premium user experience with high-performance UI and cultural theming  
+- Scalable, testable, and production-ready system design  
+- Clear separation of concerns and modern codebase structure  

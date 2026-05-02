@@ -44,3 +44,46 @@ app-example
 # generated native folders
 /ios
 /android
+
+# Native build and secrets
+*.keystore
+*.der
+*.crt
+*.cer
+GoogleService-Info.plist
+app/google-services.json
+ios/Chen/GoogleService-Info.plist
+android/app/google-services.json
+
+# Local env and secrets
+.env*
+.env
+.env.*
+config/*.env
+config/*.secret
+config/*.key
+config/*.pem
+config/*.p8
+config/*.p12
+config/*.crt
+config/*.cer
+config/*.der
+
+# IDE/editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*.bak
+*.tmp
+
+# Coverage and test output
+coverage/
+*.lcov
+
+# Misc
+*.log
+*.lock
+*.iml
+*.sublime-workspace
+*.sublime-project

@@ -51,6 +51,17 @@ type musicContext struct {
 	HasTasteProfile   bool
 }
 
+var conversationMessageColumnCandidates = []string{
+	"messages",
+	"history",
+	"conversation",
+	"chat_history",
+	"conversation_history",
+	"payload",
+	"data",
+	"transcript",
+}
+
 func RegisterRoutes(rg *gin.RouterGroup) {
 	rg.GET("/conversation", getConversation)
 	rg.POST("/chat", handleChat)
@@ -534,6 +545,9 @@ func loadConversationMessages(client *gosupabase.Client, userID string) ([]Conve
 		Limit(1, "").
 		Execute()
 	if err != nil {
+		if isMissingConversationColumnError(err, "messages") {
+			return loadConversationMessagesFromAnyColumn(client, userID)
+		}
 		return nil, err
 	}
 	if len(data) == 0 || strings.TrimSpace(string(data)) == "null" {
@@ -557,16 +571,108 @@ func loadConversationMessages(client *gosupabase.Client, userID string) ([]Conve
 }
 
 func saveConversationMessages(client *gosupabase.Client, userID string, messages []ConversationMessage) error {
+	err := upsertConversationMessagesWithColumn(client, userID, "messages", messages, true)
+	if err == nil || !isMissingConversationColumnError(err, "messages") {
+		return err
+	}
+
+	var lastErr error = err
+	for _, column := range conversationMessageColumnCandidates {
+		if column == "messages" {
+			continue
+		}
+
+		if upsertErr := upsertConversationMessagesWithColumn(client, userID, column, messages, true); upsertErr == nil {
+			return nil
+		} else if isMissingConversationColumnError(upsertErr, column) || isMissingConversationColumnError(upsertErr, "updated_at") {
+			if retryErr := upsertConversationMessagesWithColumn(client, userID, column, messages, false); retryErr == nil {
+				return nil
+			} else if isMissingConversationColumnError(retryErr, column) || isMissingConversationColumnError(retryErr, "updated_at") {
+				lastErr = retryErr
+				continue
+			} else {
+				return retryErr
+			}
+		} else {
+			return upsertErr
+		}
+	}
+
+	return lastErr
+}
+
+func loadConversationMessagesFromAnyColumn(client *gosupabase.Client, userID string) ([]ConversationMessage, error) {
+	data, _, err := client.From("chen_conversations").
+		Select("*", "", false).
+		Eq("user_id", userID).
+		Limit(1, "").
+		Execute()
+	if err != nil {
+		return nil, err
+	}
+	if len(data) == 0 || strings.TrimSpace(string(data)) == "null" {
+		return []ConversationMessage{}, nil
+	}
+
+	var rows []map[string]interface{}
+	if err := json.Unmarshal(data, &rows); err != nil {
+		var row map[string]interface{}
+		if singleErr := json.Unmarshal(data, &row); singleErr != nil {
+			return nil, err
+		}
+		return normalizeStoredMessagesFromRow(row), nil
+	}
+
+	if len(rows) == 0 {
+		return []ConversationMessage{}, nil
+	}
+
+	return normalizeStoredMessagesFromRow(rows[0]), nil
+}
+
+func normalizeStoredMessagesFromRow(row map[string]interface{}) []ConversationMessage {
+	for _, column := range conversationMessageColumnCandidates {
+		if value, ok := row[column]; ok {
+			messages := normalizeStoredMessages(value)
+			if len(messages) > 0 {
+				return messages
+			}
+		}
+	}
+
+	return []ConversationMessage{}
+}
+
+func upsertConversationMessagesWithColumn(client *gosupabase.Client, userID, column string, messages []ConversationMessage, includeUpdatedAt bool) error {
 	conversationData := map[string]interface{}{
-		"user_id":    userID,
-		"messages":   messages,
-		"updated_at": time.Now().UTC(),
+		"user_id": userID,
+		column:    messages,
+	}
+	if includeUpdatedAt {
+		conversationData["updated_at"] = time.Now().UTC()
 	}
 
 	_, _, err := client.From("chen_conversations").
 		Upsert(conversationData, "user_id", "", "").
 		Execute()
 	return err
+}
+
+func isMissingConversationColumnError(err error, column string) bool {
+	if err == nil {
+		return false
+	}
+
+	message := strings.ToLower(err.Error())
+	column = strings.ToLower(strings.TrimSpace(column))
+	if column == "" {
+		return false
+	}
+
+	return strings.Contains(message, "(42703)") &&
+		strings.Contains(message, "chen_conversations") &&
+		strings.Contains(message, "."+column) &&
+		strings.Contains(message, "does not exist")
 }
 
 func sanitizeConversationMessages(messages []ConversationMessage) []ConversationMessage {
