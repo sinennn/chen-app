@@ -1,5 +1,6 @@
 import { useRouter } from 'expo-router';
 import { useEffect } from 'react';
+//@ts-ignore
 import { ActivityIndicator, View } from 'react-native';
 
 import { Colors } from '@/constants/theme';
@@ -8,10 +9,9 @@ export default function IntroScreen() {
   const router = useRouter();
 
   useEffect(() => {
-    // Add a small delay to ensure navigation works on first load
-    const timer = setTimeout(() => {
+      const timer = setTimeout(() => {
       router.push('/(auth)/welcome');
-    }, 100);
+    }, 75);
 
     return () => clearTimeout(timer);
   }, [router]);

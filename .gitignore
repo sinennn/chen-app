@@ -23,6 +23,9 @@ expo-env.d.ts
 # Metro
 .metro-health-check*
 
+#GoogleService Info File
+GoogleService-Info.plist
+
 # debug
 npm-debug.*
 yarn-debug.*

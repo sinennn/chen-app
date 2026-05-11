@@ -150,6 +150,7 @@ func handleChat(c *gin.Context) {
 
 	context, err := buildMusicContext(client, userID)
 	if err != nil {
+		fmt.Println("User: ", userID)
 		fmt.Printf("Chen context build failed for user %s: %v\n", userID, err)
 		context = defaultMusicContext()
 	}

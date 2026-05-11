@@ -45,10 +45,12 @@ Ultra-fast, concurrent HTTP server with modular, domain-driven design. Each feat
   - Conversation memory  
 - Token streaming for real-time UX  
 
-**Paystack:**
-- Webhook-driven premium status  
-- Subscription lifecycle management  
 
+**Referral System:**
+- Unlock premium features by inviting friends  
+- Each successful referral grants unique perks (e.g., exclusive themes, voice notes, top artist stats)  
+- Referral codes tracked securely and perks applied atomically  
+- Designed for viral growth and rewarding social sharing  
 **Expo Push:**
 - Unified push notifications for iOS and Android  
 - Triggered by backend events (friend activity, requests, compatibility updates)  
