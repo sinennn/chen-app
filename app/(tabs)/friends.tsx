@@ -588,8 +588,9 @@ export default function FriendsScreen() {
           mergedFriends.push(candidate);
         }
       }
-      const friendIds = new Set(mergedFriends.map((friend) => friend.id));
-      setFriends(mergedFriends);
+      const enrichedFriends = await api.friends.enrichCompatibility(mergedFriends);
+      const friendIds = new Set(enrichedFriends.map((friend) => friend.id));
+      setFriends(enrichedFriends);
       setDiscoverUsers(
         (discoverData || []).filter(
           (entry) =>

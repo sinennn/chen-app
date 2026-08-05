@@ -9,7 +9,6 @@ import (
 
 var Client *supabase.Client
 
-// InitClient initializes the Supabase client
 func InitClient() error {
 	supabaseURL := os.Getenv("SUPABASE_URL")
 	supabaseKey := os.Getenv("SUPABASE_SERVICE_KEY")
@@ -27,7 +26,6 @@ func InitClient() error {
 	return nil
 }
 
-// GetClient returns the initialized Supabase client
 func GetClient() *supabase.Client {
 	return Client
 }

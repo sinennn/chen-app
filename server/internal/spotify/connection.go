@@ -16,9 +16,6 @@ import (
 
 var ErrNoSpotifyConnection = errors.New("spotify connection not found")
 
-// ExchangeAuthorizationCode exchanges a Spotify OAuth authorization code for
-// access and refresh tokens using the server-side client credentials.
-// The client secret never leaves the server.
 func ExchangeAuthorizationCode(code, redirectURI string) (*TokenResponse, error) {
 	clientID := os.Getenv("SPOTIFY_CLIENT_ID")
 	clientSecret := os.Getenv("SPOTIFY_CLIENT_SECRET")
@@ -51,7 +48,6 @@ func ExchangeAuthorizationCode(code, redirectURI string) (*TokenResponse, error)
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		// Try to surface Spotify's own error description
 		var spotifyErr struct {
 			Error            string `json:"error"`
 			ErrorDescription string `json:"error_description"`

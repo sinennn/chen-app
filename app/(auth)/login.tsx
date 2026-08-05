@@ -105,7 +105,6 @@ export default function LoginScreen() {
             </Text>
           </Pressable>
 
-          {/* OR Divider */}
           <View className="my-7 flex-row items-center">
             <View
               style={{
@@ -190,33 +189,12 @@ export default function LoginScreen() {
             </View>
             <Text className="text-sm" style={{ color: 'rgba(255,255,255,0.70)' }}>
               I have read and agree to the{' '}
-              <Text style={{ color: Colors.orange, fontWeight: '600' }}>Terms of Use</Text>
+              <Text onPress={() => router.push('/terms')} style={{ color: Colors.orange, fontWeight: '600' }}>Terms of Use</Text>
             </Text>
           </Pressable>
 
-          <Pressable onPress={() => router.push('/(auth)/signup')} className="items-center pt-[230px]">
-            <Text className="text-sm font-semibold" style={{ color: 'rgba(255,255,255,0.75)' }}>
-              Don't have an account? <Text className='text-orange-500'>Create one</Text>
-            </Text>
-          </Pressable>
 
           <View className="flex-1" />
-          {/* 
-          <Pressable
-            onPress={() => router.push('/(auth)/signup')}
-            className="mb-16 self-center rounded-2xl"
-            style={{
-              width: 64,
-              height: 64,
-              alignItems: 'center',
-              justifyContent: 'center',
-              borderWidth: 1,
-             shadowRadius: 18,
-              shadowOffset: { width: 0, height: 10 },
-            }}
-          >
-            <IconSymbol name="chevron.right" size={26} color={agree ? Colors.white : 'rgba(255,255,255,0.55)'} />
-          </Pressable> */}
         </View>
       </View>
     </KeyboardAvoidingView>

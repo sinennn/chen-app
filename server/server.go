@@ -5,7 +5,7 @@ package main
 // @description     API documentation for the Chen, a music compatibility and social platform.
 // @host            localhost:8080
 // @BasePath        /api/v1
-
+//server file for chen proprietary backend
 import (
 	_ "chen/docs"
 	"chen/internal/activity"
@@ -51,7 +51,7 @@ func main() {
 
 	port := os.Getenv("PORT")
 	if port == "" {
-		port = "5000"
+		port = "5001"
 	}
 
 	router := gin.Default()

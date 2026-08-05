@@ -35,10 +35,12 @@ function RootNavigator() {
         <Stack.Screen name="(auth)" options={{ headerShown: false }} />
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         <Stack.Screen name="profile/[userId]" options={{ headerShown: false }} />
+        <Stack.Screen name="compare/[userId]" options={{ headerShown: false }} />
         <Stack.Screen name="messages/[friendId]" options={{ headerShown: false }} />
         <Stack.Screen name="notifications/index" options={{ headerShown: false }} />
         <Stack.Screen name="friends/[username]" options={{ headerShown: false }} />
         <Stack.Screen name="settings" options={{ headerShown: false }} />
+        <Stack.Screen name="terms" options={{ headerShown: false }} />
         <Stack.Screen name="modal" options={{ presentation: 'modal', title: 'Modal' }} />
       </Stack>
       <StatusBar style="light" />

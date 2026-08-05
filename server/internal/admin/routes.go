@@ -38,19 +38,15 @@ func AdminMiddleware() gin.HandlerFunc {
 	}
 }
 
-// RegisterRoutes wires the admin endpoints onto the given router group.
-// The group must already have AdminMiddleware applied.
 func RegisterRoutes(rg *gin.RouterGroup) {
 	rg.GET("/users/:userId/super-user", handleGetSuperUser)
 	rg.PUT("/users/:userId/super-user", handleSetSuperUser)
 }
 
-// setSuperUserRequest is the request body for PUT /admin/users/:userId/super-user.
 type setSuperUserRequest struct {
 	Enabled bool `json:"enabled"`
 }
 
-// superUserResponse is returned by both GET and PUT endpoints.
 type superUserResponse struct {
 	UserID      string `json:"user_id"`
 	Email       string `json:"email"`

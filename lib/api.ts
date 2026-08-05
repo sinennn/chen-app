@@ -60,6 +60,39 @@ export type PublicProfileData = {
   }>;
 };
 
+export type CompatibilityUser = {
+  id: string;
+  username: string;
+  avatar_id: string;
+};
+
+export type CompatibilityArtist = {
+  name: string;
+  imageUrl: string;
+  genres?: string[];
+  rank?: number;
+};
+
+export type CompatibilityTrack = {
+  name: string;
+  artist: string;
+  album?: string;
+  imageUrl: string;
+  rank?: number;
+};
+
+export type CompatibilityData = {
+  you: CompatibilityUser;
+  them: CompatibilityUser;
+  relationship: "none" | "self" | "friends" | "outgoing_pending" | "incoming_pending";
+  score: number;
+  sharedArtists: CompatibilityArtist[];
+  sharedTracks: CompatibilityTrack[];
+  yourUniqueArtists: CompatibilityArtist[];
+  theirUniqueArtists: CompatibilityArtist[];
+  insight: string;
+};
+
 export type ActivityComment = {
   id: string;
   user_id: string;
@@ -329,10 +362,9 @@ export type SpotifyTopArtistsResponse = {
 
 function resolveApiBase() {
   const configuredBase = process.env.EXPO_PUBLIC_API_URL?.replace(/\/$/, "");
-  const fallbackBase = "http://localhost:5000/api/v1";
+  const fallbackBase = "https://chen-v2lb.onrender.com/api/v1";
   const base = configuredBase || fallbackBase;
 
-  // Android emulators cannot reach the host machine via localhost.
   if (Platform.OS === "android" && base.includes("localhost")) {
     return base.replace("localhost", "10.0.2.2");
   }
@@ -403,12 +435,46 @@ async function deleteJSON<T>(path: string, body?: any): Promise<T> {
   return (json.data ?? json) as T;
 }
 
+function normalizeCompatibilityScore(value: unknown): number {
+  const score = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(score)) {
+    return 0;
+  }
+  return Math.max(0, Math.min(100, Math.round(score)));
+}
+
+async function enrichFriendCompatibility<T extends { id: string; compatibility?: number }>(
+  friends: T[],
+): Promise<T[]> {
+  const enriched = await Promise.all(
+    (friends || []).map(async (friend) => {
+      try {
+        const data = await getJSON<CompatibilityData>(
+          `/compatibility/${encodeURIComponent(friend.id)}`,
+        );
+        return {
+          ...friend,
+          compatibility: normalizeCompatibilityScore(data.score),
+        };
+      } catch {
+        return {
+          ...friend,
+          compatibility: normalizeCompatibilityScore(friend.compatibility),
+        };
+      }
+    }),
+  );
+
+  return enriched;
+}
+
 export const api = {
   feed: {
     get: () => getJSON<ActivityItem[]>("/activity/feed"),
   },
   friends: {
-    list: () => getJSON<Friend[]>("/friends"),
+    list: async () => enrichFriendCompatibility(await getJSON<Friend[]>("/friends")),
+    enrichCompatibility: enrichFriendCompatibility,
     discover: () => getJSON<FriendDiscoverResult[]>("/friends/discover"),
     requests: () => getJSON<PendingFriendRequest[]>("/friends/requests"),
     search: (query: string) =>
@@ -478,6 +544,17 @@ export const api = {
       return getJSON<PublicProfileData>(
         `/profile/users/${encodeURIComponent(userId)}${suffix}`,
       );
+    },
+  },
+  compatibility: {
+    user: async (userId: string) => {
+      const data = await getJSON<CompatibilityData>(
+        `/compatibility/${encodeURIComponent(userId)}`,
+      );
+      return {
+        ...data,
+        score: normalizeCompatibilityScore(data.score),
+      };
     },
   },
   reactions: {

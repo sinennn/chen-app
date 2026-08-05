@@ -509,7 +509,7 @@ export default function ProfileScreen() {
   const selectedArtistPerk = lockedArtistRank ? getArtistPerkKey(lockedArtistRank) : null;
   const selectedArtistInviteURL =
     lockedArtistRank && selectedArtistPerk && status?.referral_code
-      ? Linking.createURL('/signup', {
+      ? Linking.createURL('/(auth)/login', {
           queryParams: {
             referral_code: status.referral_code,
             perk_key: selectedArtistPerk,

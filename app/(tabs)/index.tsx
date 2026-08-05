@@ -443,11 +443,11 @@ function FeedCard({
       <Pressable onPress={handleDoubleTap}>
         <View
           style={{
-            backgroundColor: "rgba(255,255,255,0.07)",
+            backgroundColor: Colors.surfaceMuted,
             borderRadius: 26,
             padding: 18,
             borderWidth: 1,
-            borderColor: "rgba(255,255,255,0.08)",
+            borderColor: Colors.border,
             shadowColor: "#000",
             shadowOffset: { width: 0, height: 10 },
             shadowOpacity: 0.35,
@@ -491,7 +491,7 @@ function FeedCard({
 
               <Text
                 style={{
-                  color: "rgba(255,255,255,0.5)",
+                  color: Colors.textMuted,
                   fontSize: 12,
                 }}
               >
@@ -516,7 +516,7 @@ function FeedCard({
 
             <Text
               style={{
-                color: "rgba(255,255,255,0.4)",
+                color: Colors.textMuted,
                 fontSize: 12,
                 marginLeft: 10,
               }}
@@ -549,14 +549,14 @@ function FeedCard({
                     height: 70,
                     borderRadius: 16,
                     marginRight: 16,
-                    backgroundColor: 'rgba(255,255,255,0.08)',
+                    backgroundColor: Colors.surfaceMuted,
                     borderWidth: 1,
-                    borderColor: 'rgba(255,255,255,0.08)',
+                    borderColor: Colors.border,
                     alignItems: 'center',
                     justifyContent: 'center',
                   }}
                 >
-                  <Text style={{ color: 'rgba(255,255,255,0.45)', fontSize: 20, fontWeight: '700' }}>
+                  <Text style={{ color: Colors.textMuted, fontSize: 20, fontWeight: '700' }}>
                     ♪
                   </Text>
                 </View>
@@ -577,7 +577,7 @@ function FeedCard({
 
               <Text
                 style={{
-                  color: "rgba(255,255,255,0.7)",
+                  color: Colors.textSecondary,
                   fontSize: 14,
                   marginTop: 2,
                 }}
@@ -594,12 +594,12 @@ function FeedCard({
                     paddingHorizontal: 10,
                     paddingVertical: 7,
                     borderRadius: 999,
-                    backgroundColor: hasPreview ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.04)',
+                    backgroundColor: hasPreview ? Colors.surfaceMuted : Colors.surfaceSoft,
                     borderWidth: 1,
-                    borderColor: hasPreview ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.06)',
+                    borderColor: hasPreview ? Colors.borderStrong : Colors.surfaceStrong,
                   }}
                 >
-                  <Text style={{ color: hasPreview ? Colors.textPrimary : 'rgba(255,255,255,0.35)', fontSize: 12, fontWeight: '700' }}>
+                  <Text style={{ color: hasPreview ? Colors.textPrimary : Colors.textMuted, fontSize: 12, fontWeight: '700' }}>
                     {hasPreview ? '▶' : 'No preview'}
                   </Text>
                 </Pressable>
@@ -613,9 +613,9 @@ function FeedCard({
                     borderRadius: 16,
                     alignItems: 'center',
                     justifyContent: 'center',
-                    backgroundColor: item.spotify_url ? 'rgba(29,185,84,0.16)' : 'rgba(255,255,255,0.04)',
+                    backgroundColor: item.spotify_url ? 'rgba(29,185,84,0.16)' : Colors.surfaceSoft,
                     borderWidth: 1,
-                    borderColor: item.spotify_url ? 'rgba(29,185,84,0.35)' : 'rgba(255,255,255,0.06)',
+                    borderColor: item.spotify_url ? 'rgba(29,185,84,0.35)' : Colors.surfaceStrong,
                   }}
                 >
                   <Image
@@ -632,7 +632,6 @@ function FeedCard({
             </View>
           </View>
 
-          {/* ACTION ROW */}
           <View
             style={{
               flexDirection: "row",
@@ -680,9 +679,9 @@ function FeedCard({
                     paddingHorizontal: 10,
                     paddingVertical: 7,
                     borderRadius: 999,
-                    backgroundColor: 'rgba(232,100,10,0.12)',
+                    backgroundColor: Colors.accentSurface,
                     borderWidth: 1,
-                    borderColor: 'rgba(232,100,10,0.22)',
+                    borderColor: Colors.accentSurfaceStrong,
                   }}
                 >
                   <IconSymbol name="paperplane.fill" size={14} color={Colors.orange} />
@@ -697,9 +696,9 @@ function FeedCard({
                   <IconSymbol
                     name="bubble.right"
                     size={20}
-                    color="rgba(255,255,255,0.6)"
+                    color={Colors.textSecondary}
                   />
-                  <Text style={{ color: 'rgba(255,255,255,0.6)', fontSize: 12, fontWeight: '600' }}>
+                  <Text style={{ color: Colors.textSecondary, fontSize: 12, fontWeight: '600' }}>
                     {commentCount}
                   </Text>
                 </View>
@@ -972,7 +971,7 @@ function SkeletonCard({ index }: { index: number }) {
     >
       <View
         style={{
-          backgroundColor: "rgba(255,255,255,0.06)",
+          backgroundColor: Colors.surfaceSoft,
           borderRadius: 26,
           padding: 18,
           height: 140,
@@ -1298,18 +1297,18 @@ export default function FeedScreen() {
   );
 
   return (
-    <View style={{ flex: 1 }} >
-      {/* Background */}
+    <View style={{ flex: 1, backgroundColor: Colors.bg }}>
+
       <ImageBackground
-        source={{ uri: 'https://images.unsplash.com/photo-1493225457124-a3eb161ffa5f?w=800&h=1200&fit=crop' }}
-        style={{ flex: 1 }}
+        source={{ uri: 'https://images.unsplash.com/photo-1493225457124-a3eb161ffa5f?w=400&h=600&fit=crop' }}
+        style={{ position: 'absolute', width: '100%', height: '100%' }}
         blurRadius={20}
-      >
-        <LinearGradient
-          colors={['rgba(0, 1, 6, 0.7)', 'rgba(0, 1, 6, 0.9)', 'rgba(0, 1, 6, 0.95)']}
-          style={{ flex: 1 }}
-        >
-          {/* Header */}
+      />
+      <LinearGradient
+        colors={[Colors.bgHeroFrom, Colors.overlaySoft, Colors.bg]}
+        style={{ position: 'absolute', width: '100%', height: '100%' }}
+      />
+
           <View
             style={{
               flexDirection: 'row',
@@ -1335,7 +1334,7 @@ export default function FeedScreen() {
               <Text
                 style={{
                   fontSize: 13,
-                  color: 'rgba(255,255,255,0.6)',
+                  color: Colors.textSecondary,
                   marginTop: 2,
                 }}
               >
@@ -1350,11 +1349,11 @@ export default function FeedScreen() {
                   width: 40,
                   height: 40,
                   borderRadius: 20,
-                  backgroundColor: 'rgba(255, 255, 255, 0.1)',
+                  backgroundColor: Colors.surfaceMuted,
                   alignItems: 'center',
                   justifyContent: 'center',
                   borderWidth: 1,
-                  borderColor: 'rgba(255, 255, 255, 0.08)',
+                  borderColor: Colors.border,
                 }}
               >
                 <IconSymbol name="bell" size={20} color={Colors.textPrimary} />
@@ -1372,7 +1371,7 @@ export default function FeedScreen() {
                       alignItems: 'center',
                       justifyContent: 'center',
                       borderWidth: 1,
-                      borderColor: 'rgba(13,11,9,0.85)',
+                      borderColor: Colors.overlay,
                     }}
                   >
                     <Text style={{ color: Colors.white, fontSize: 10, fontWeight: '700' }}>
@@ -1433,8 +1432,6 @@ export default function FeedScreen() {
               ))
             )}
           </ScrollView>
-        </LinearGradient>
-      </ImageBackground>
       
       {selectedActivity && (
         <CommentModal

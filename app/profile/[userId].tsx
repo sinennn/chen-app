@@ -339,6 +339,15 @@ export default function PublicProfileScreen() {
     });
   };
 
+  const handleComparePress = () => {
+    if (!profile || profile.relationship.status === 'self' || profile.user.id === user?.id) return;
+
+    router.push({
+      pathname: '/compare/[userId]',
+      params: { userId: profile.user.id },
+    });
+  };
+
   const handlePrimaryAction = async () => {
     if (!profile || submitting) return;
 
@@ -463,6 +472,27 @@ export default function PublicProfileScreen() {
                 <Text style={{ color: Colors.textMuted, fontSize: 12, marginTop: 14 }}>
                   Messaging unlocks once you are connected as friends.
                 </Text>
+              ) : null}
+              {profile.relationship.status !== 'self' && profile.user.id !== user?.id ? (
+                <Pressable
+                  onPress={handleComparePress}
+                  style={{
+                    marginTop: 12,
+                    width: '100%',
+                    borderRadius: 18,
+                    paddingVertical: 13,
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    flexDirection: 'row',
+                    gap: 8,
+                    backgroundColor: 'rgba(232,100,10,0.10)',
+                    borderWidth: 1,
+                    borderColor: 'rgba(232,100,10,0.22)',
+                  }}
+                >
+                  <IconSymbol name="person.2.fill" size={16} color={Colors.orange} />
+                  <Text style={{ color: Colors.orange, fontSize: 14, fontWeight: '800' }}>Compare taste</Text>
+                </Pressable>
               ) : null}
             </View>
           </FadeSlide>

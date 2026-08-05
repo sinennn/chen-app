@@ -142,19 +142,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           const fallback = await fetchProfile(
             'id, email, username, user_tag, avatar_id, is_premium, created_at'
           );
-          data = fallback.data
+          data = (fallback.data
             ? {
-                ...fallback.data,
+                ...(fallback.data as unknown as Record<string, unknown>),
                 theme_preference: 'default',
                 referral_code: '',
                 onboarding_completed_at: '',
               }
-            : fallback.data;
+            : fallback.data) as unknown as typeof data;
           error = fallback.error;
         }
 
         if (error) {
-          // If user doesn't exist in users table, create them
           if (error.code === 'PGRST116') {
             const {
               data: { user },
@@ -193,14 +192,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                   .select()
                   .single();
 
-                createdUser = fallbackCreate.data
+                createdUser = (fallbackCreate.data
                   ? {
-                      ...fallbackCreate.data,
+                      ...(fallbackCreate.data as unknown as Record<string, unknown>),
                       theme_preference: 'default',
                       referral_code: '',
                       onboarding_completed_at: '',
                     }
-                  : fallbackCreate.data;
+                  : fallbackCreate.data) as unknown as typeof createdUser;
                 createError = fallbackCreate.error;
               }
 
@@ -218,7 +217,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           return cachedProfile;
         }
 
-        const profileResult = mergeProfileWithCached(data as UserProfile, cachedProfile);
+        const profileResult = mergeProfileWithCached(data as unknown as UserProfile, cachedProfile);
         await saveCachedProfile(profileResult);
         return profileResult;
       } catch (error) {
@@ -318,7 +317,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       // Navigate to login screen
       import('expo-router').then(({ router }) => {
-        router.replace('/(auth)/signup');
+        router.replace('/(auth)/welcome');
       });
       
     } catch (error) {
@@ -331,7 +330,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       await saveCachedProfile(null);
       
       import('expo-router').then(({ router }) => {
-        router.replace('/(auth)/signup');
+        router.replace('/(auth)/welcome');
       });
     }
   };

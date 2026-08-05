@@ -1,5 +1,6 @@
 import { useLocalSearchParams } from 'expo-router';
 import { Colors } from '@/constants/theme';
+//@ts-ignore
 import { Text, View } from 'react-native';
 
 export default function PlayerScreen() {

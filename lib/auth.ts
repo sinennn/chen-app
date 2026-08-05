@@ -6,8 +6,8 @@ import { supabase } from './supabase';
 
 export function configureGoogleSignIn() {
   GoogleSignin.configure({
-    webClientId: process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID, // Use web client ID for Supabase
-    iosClientId: process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID, // Keep iOS client ID for native sign-in
+    webClientId: process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID, 
+    iosClientId: process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID, 
     scopes: ['profile', 'email'],
   });
 }
@@ -70,7 +70,6 @@ import * as AppleAuthentication from 'expo-apple-authentication';
 
 export async function signInWithApple() {
   try {
-    // Check if Apple Authentication is available
     const isAvailable = await AppleAuthentication.isAvailableAsync();
     if (!isAvailable) {
       throw new Error('Apple Sign-In is not available on this device');
@@ -100,8 +99,7 @@ export async function signInWithApple() {
     if (error.code === 'ERR_REQUEST_CANCELED') {
       return { user: null, session: null, error: 'cancelled' };
     }
-    
-    // Handle specific Apple Authentication errors
+ 
     if (error.code === 1000) {
       return { user: null, session: null, error: 'Apple Sign-In failed. Please try again or use a different sign-in method.' };
     }

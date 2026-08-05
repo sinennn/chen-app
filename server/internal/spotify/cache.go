@@ -3,7 +3,6 @@ package spotify
 import (
 	"sync"
 	"time"
-
 	"golang.org/x/sync/singleflight"
 )
 

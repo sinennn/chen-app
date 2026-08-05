@@ -1,113 +1,165 @@
+//@ts-nocheck
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { Colors } from '@/constants/theme';
+import { CompatibilityArtist, CompatibilityData, CompatibilityTrack, api } from '@/lib/api';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
 import {
-    Animated,
-    Dimensions,
-    Image,
-    ImageBackground,
-    Pressable,
-    ScrollView,
-    Text,
-    View
+  ActivityIndicator,
+  Animated,
+  Image,
+  ImageBackground,
+  Pressable,
+  ScrollView,
+  Text,
+  View,
 } from 'react-native';
 
-const { width: screenWidth } = Dimensions.get('window');
+function MatchColor(score: number) {
+  if (score >= 85) return Colors.orange;
+  if (score >= 65) return Colors.success;
+  if (score > 0) return Colors.accentSecondary;
+  return Colors.surfaceStrong;
+}
 
-// Mock comparison data - in real app this would come from API
-const mockComparisonData: { [key: string]: any } = {
-  '1': {
-    friendName: 'alex.wav',
-    friendImage: 'https://api.dicebear.com/7.x/avataaars/png?seed=alex&size=60',
-    compatibility: 92,
-    sharedArtists: [
-      { name: 'Frank Ocean', image: 'https://images.unsplash.com/photo-1493225457124-a3eb161ffa5f?w=80&h=80&fit=crop' },
-      { name: 'Fred again..', image: 'https://images.unsplash.com/photo-1571974599782-87624638275c?w=80&h=80&fit=crop' },
-      { name: 'SZA', image: 'https://images.unsplash.com/photo-1514320291840-2e0a9bf2a9ae?w=80&h=80&fit=crop' },
-    ],
-    yourUniqueArtists: [
-      { name: 'James Blake', image: 'https://images.unsplash.com/photo-1493225457124-a3eb161ffa5f?w=80&h=80&fit=crop' },
-      { name: 'Burial', image: 'https://images.unsplash.com/photo-1571974599782-87624638275c?w=80&h=80&fit=crop' },
-    ],
-    theirUniqueArtists: [
-      { name: 'Phoebe Bridgers', image: 'https://images.unsplash.com/photo-1514320291840-2e0a9bf2a9ae?w=80&h=80&fit=crop' },
-      { name: 'Clairo', image: 'https://images.unsplash.com/photo-1493225457124-a3eb161ffa5f?w=80&h=80&fit=crop' },
-    ]
-  },
-  // Add more mock comparisons as needed
-};
+function avatarURL(seed: string) {
+  return `https://api.dicebear.com/7.x/adventurer/png?seed=${seed || 'default'}&size=120&backgroundColor=0D0B09`;
+}
 
-function ArtistCard({ artist, index }: { artist: any; index: number }) {
-  const fadeAnim = useRef(new Animated.Value(0)).current;
-  const slideAnim = useRef(new Animated.Value(20)).current;
+function FadeIn({ children, delay = 0 }: { children: React.ReactNode; delay?: number }) {
+  const opacity = useRef(new Animated.Value(0)).current;
+  const translateY = useRef(new Animated.Value(18)).current;
 
   useEffect(() => {
     Animated.parallel([
-      Animated.timing(fadeAnim, {
-        toValue: 1,
-        duration: 500,
-        delay: index * 100,
-        useNativeDriver: true,
-      }),
-      Animated.timing(slideAnim, {
-        toValue: 0,
-        duration: 500,
-        delay: index * 100,
-        useNativeDriver: true,
-      }),
+      Animated.timing(opacity, { toValue: 1, duration: 420, delay, useNativeDriver: true }),
+      Animated.timing(translateY, { toValue: 0, duration: 420, delay, useNativeDriver: true }),
     ]).start();
-  }, [fadeAnim, slideAnim, index]);
+  }, []);
 
-  return (
-    <Animated.View
-      style={{
-        opacity: fadeAnim,
-        transform: [{ translateY: slideAnim }],
-        alignItems: 'center',
-        marginRight: 16,
-        width: 80,
-      }}
-    >
-      <Image
-        source={{ uri: artist.image }}
-        style={{
-          width: 70,
-          height: 70,
-          borderRadius: 35,
-          marginBottom: 8,
-          borderWidth: 2,
-          borderColor: 'rgba(255, 255, 255, 0.2)',
-        }}
-      />
-      <Text 
-        style={{ 
-          color: Colors.textPrimary, 
-          fontSize: 12, 
-          fontWeight: '600',
-          textAlign: 'center',
-          lineHeight: 16
-        }}
-        numberOfLines={2}
-      >
-        {artist.name}
-      </Text>
-    </Animated.View>
-  );
+  return <Animated.View style={{ opacity, transform: [{ translateY }] }}>{children}</Animated.View>;
 }
 
 function SectionHeader({ title, subtitle, color = Colors.textPrimary }: { title: string; subtitle?: string; color?: string }) {
   return (
-    <View style={{ marginBottom: 20 }}>
-      <Text style={{ color, fontSize: 22, fontWeight: '700', marginBottom: 4 }}>
-        {title}
-      </Text>
-      {subtitle && (
-        <Text style={{ color: 'rgba(255, 255, 255, 0.6)', fontSize: 14 }}>
-          {subtitle}
+    <View style={{ marginBottom: 16 }}>
+      <Text style={{ color, fontSize: 20, fontWeight: '800' }}>{title}</Text>
+      {subtitle ? <Text style={{ color: Colors.textMuted, fontSize: 13, marginTop: 4 }}>{subtitle}</Text> : null}
+    </View>
+  );
+}
+
+function ArtistCard({ artist, index }: { artist: CompatibilityArtist; index: number }) {
+  return (
+    <FadeIn delay={index * 70}>
+      <View style={{ alignItems: 'center', marginRight: 14, width: 84 }}>
+        {artist.imageUrl ? (
+          <Image
+            source={{ uri: artist.imageUrl }}
+            style={{
+              width: 72,
+              height: 72,
+              borderRadius: 36,
+              marginBottom: 8,
+              borderWidth: 2,
+              borderColor: 'rgba(255,255,255,0.16)',
+            }}
+          />
+        ) : (
+          <View
+            style={{
+              width: 72,
+              height: 72,
+              borderRadius: 36,
+              marginBottom: 8,
+              alignItems: 'center',
+              justifyContent: 'center',
+              backgroundColor: Colors.surfaceMuted,
+              borderWidth: 1,
+              borderColor: Colors.surfaceStrong,
+            }}
+          >
+            <IconSymbol name="music.note" size={24} color={Colors.orange} />
+          </View>
+        )}
+        <Text numberOfLines={2} style={{ color: Colors.textPrimary, fontSize: 12, fontWeight: '700', textAlign: 'center', lineHeight: 16 }}>
+          {artist.name}
         </Text>
-      )}
+      </View>
+    </FadeIn>
+  );
+}
+
+function TrackRow({ track, index }: { track: CompatibilityTrack; index: number }) {
+  return (
+    <FadeIn delay={index * 60}>
+      <View
+        style={{
+          flexDirection: 'row',
+          alignItems: 'center',
+          paddingVertical: 10,
+          borderBottomWidth: index < 2 ? 1 : 0,
+          borderBottomColor: 'rgba(255,255,255,0.06)',
+        }}
+      >
+        {track.imageUrl ? (
+          <Image source={{ uri: track.imageUrl }} style={{ width: 46, height: 46, borderRadius: 10, marginRight: 12 }} />
+        ) : (
+          <View style={{ width: 46, height: 46, borderRadius: 10, marginRight: 12, backgroundColor: Colors.surfaceMuted, alignItems: 'center', justifyContent: 'center' }}>
+            <IconSymbol name="music.note" size={18} color={Colors.orange} />
+          </View>
+        )}
+        <View style={{ flex: 1 }}>
+          <Text numberOfLines={1} style={{ color: Colors.textPrimary, fontSize: 14, fontWeight: '700' }}>{track.name}</Text>
+          <Text numberOfLines={1} style={{ color: Colors.textSecondary, fontSize: 12, marginTop: 2 }}>{track.artist}</Text>
+        </View>
+      </View>
+    </FadeIn>
+  );
+}
+
+function EmptySection({ message }: { message: string }) {
+  return (
+    <View style={{ height: 96, alignItems: 'center', justifyContent: 'center' }}>
+      <Text style={{ color: Colors.textMuted, fontSize: 13, textAlign: 'center' }}>{message}</Text>
+    </View>
+  );
+}
+
+function ArtistSection({
+  title,
+  subtitle,
+  artists,
+  color,
+  empty,
+}: {
+  title: string;
+  subtitle: string;
+  artists: CompatibilityArtist[];
+  color?: string;
+  empty: string;
+}) {
+  return (
+    <View style={{ paddingHorizontal: 20, marginBottom: 34 }}>
+      <SectionHeader title={title} subtitle={subtitle} color={color} />
+      <View
+        style={{
+          backgroundColor: 'rgba(255,255,255,0.05)',
+          borderRadius: 20,
+          padding: 16,
+          borderWidth: 1,
+          borderColor: 'rgba(255,255,255,0.09)',
+        }}
+      >
+        {artists.length > 0 ? (
+          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+            {artists.map((artist, index) => <ArtistCard key={`${artist.name}-${index}`} artist={artist} index={index} />)}
+          </ScrollView>
+        ) : (
+          <EmptySection message={empty} />
+        )}
+      </View>
     </View>
   );
 }
@@ -115,259 +167,136 @@ function SectionHeader({ title, subtitle, color = Colors.textPrimary }: { title:
 export default function CompareScreen() {
   const { userId } = useLocalSearchParams();
   const router = useRouter();
-  const [comparisonData, setComparisonData] = useState<any>(null);
+  const [data, setData] = useState<CompatibilityData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
 
   useEffect(() => {
-    // In real app, fetch comparison data from API
-    const data = mockComparisonData[userId as string];
-    setComparisonData(data);
+    let cancelled = false;
+
+    async function loadCompatibility() {
+      const targetUserId = Array.isArray(userId) ? userId[0] : userId;
+      if (!targetUserId) {
+        setError('No user selected.');
+        setLoading(false);
+        return;
+      }
+
+      try {
+        setLoading(true);
+        setError('');
+        const result = await api.compatibility.user(targetUserId);
+        if (!cancelled) setData(result);
+      } catch (err) {
+        if (!cancelled) setError(err instanceof Error ? err.message : 'Failed to load compatibility.');
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+
+    loadCompatibility();
+    return () => {
+      cancelled = true;
+    };
   }, [userId]);
 
-  if (!comparisonData) {
-    return (
-      <View style={{ flex: 1, backgroundColor: Colors.bg, alignItems: 'center', justifyContent: 'center' }}>
-        <Text style={{ color: Colors.textPrimary }}>Loading comparison...</Text>
-      </View>
-    );
-  }
+  const scoreColor = MatchColor(data?.score || 0);
+  const backgroundImage =
+    data?.sharedArtists[0]?.imageUrl ||
+    data?.sharedTracks[0]?.imageUrl ||
+    'https://images.unsplash.com/photo-1493225457124-a3eb161ffa5f?w=800&h=1200&fit=crop';
 
   return (
-    <View style={{ flex: 1 }}>
-      {/* Background */}
-      <ImageBackground
-        source={{ uri: 'https://images.unsplash.com/photo-1493225457124-a3eb161ffa5f?w=800&h=1200&fit=crop' }}
-        style={{ flex: 1 }}
-        blurRadius={25}
-      >
-        <LinearGradient
-          colors={['rgba(0, 1, 6, 0.85)', 'rgba(0, 1, 6, 0.9)', 'rgba(0, 1, 6, 0.95)']}
-          style={{ flex: 1 }}
-        >
-          {/* Header */}
-          <View
-            style={{
-              flexDirection: 'row',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              paddingHorizontal: 20,
-              paddingTop: 60,
-              paddingBottom: 20,
-            }}
-          >
+    <View style={{ flex: 1, backgroundColor: Colors.bg }}>
+      <ImageBackground source={{ uri: backgroundImage }} style={{ flex: 1 }} blurRadius={28}>
+        <LinearGradient colors={['rgba(13,11,9,0.84)', 'rgba(13,11,9,0.92)', Colors.bg]} style={{ flex: 1 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingTop: 60, paddingBottom: 18 }}>
             <Pressable
               onPress={() => router.back()}
-              style={{
-                width: 40,
-                height: 40,
-                borderRadius: 20,
-                backgroundColor: 'rgba(255, 255, 255, 0.1)',
-                alignItems: 'center',
-                justifyContent: 'center',
-                borderWidth: 1,
-                borderColor: 'rgba(255, 255, 255, 0.08)',
-              }}
+              style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: 'rgba(255,255,255,0.08)', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)' }}
             >
               <IconSymbol name="chevron.left" size={20} color={Colors.textPrimary} />
             </Pressable>
-            
-            <Text
-              style={{
-                fontSize: 18,
-                fontWeight: '600',
-                color: Colors.textPrimary,
-              }}
-            >
-              Music Comparison
+            <Text style={{ fontSize: 13, fontWeight: '800', color: Colors.textMuted, letterSpacing: 2.2, textTransform: 'uppercase' }}>
+              Music Match
             </Text>
-            
             <View style={{ width: 40 }} />
           </View>
 
-          <ScrollView
-            style={{ flex: 1 }}
-            contentContainerStyle={{ paddingBottom: 100 }}
-            showsVerticalScrollIndicator={false}
-          >
-            {/* Comparison Header */}
-            <View style={{ alignItems: 'center', paddingHorizontal: 20, marginBottom: 40 }}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 20 }}>
-                <Image
-                  source={{ uri: 'https://api.dicebear.com/7.x/avataaars/png?seed=user&size=60' }}
-                  style={{
-                    width: 60,
-                    height: 60,
-                    borderRadius: 30,
-                    borderWidth: 3,
-                    borderColor: Colors.orange,
-                  }}
-                />
-                
-                <Text style={{ 
-                  color: Colors.textPrimary, 
-                  fontSize: 24, 
-                  fontWeight: '700', 
-                  marginHorizontal: 16 
-                }}>
-                  vs
-                </Text>
-                
-                <Image
-                  source={{ uri: comparisonData.friendImage }}
-                  style={{
-                    width: 60,
-                    height: 60,
-                    borderRadius: 30,
-                    borderWidth: 3,
-                    borderColor: Colors.orange,
-                  }}
-                />
-              </View>
-              
-              <Text style={{ 
-                color: Colors.textPrimary, 
-                fontSize: 28, 
-                fontWeight: '700', 
-                textAlign: 'center',
-                marginBottom: 8
-              }}>
-                YOU vs {comparisonData.friendName.toUpperCase()}
-              </Text>
-              
-              <View
-                style={{
-                  backgroundColor: Colors.orange,
-                  paddingHorizontal: 20,
-                  paddingVertical: 10,
-                  borderRadius: 25,
-                }}
-              >
-                <Text style={{ color: Colors.white, fontSize: 18, fontWeight: '700' }}>
-                  {comparisonData.compatibility}% Compatible
-                </Text>
-              </View>
+          {loading ? (
+            <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+              <ActivityIndicator color={Colors.orange} size="large" />
             </View>
-
-            {/* Shared Artists */}
-            <View style={{ paddingHorizontal: 20, marginBottom: 40 }}>
-              <SectionHeader 
-                title="Shared Artists" 
-                subtitle="Artists you both love"
-                color={Colors.orange}
-              />
-              
-              <View
-                style={{
-                  backgroundColor: 'rgba(255, 147, 51, 0.1)',
-                  borderRadius: 24,
-                  padding: 20,
-                  borderWidth: 1,
-                  borderColor: 'rgba(255, 147, 51, 0.2)',
-                }}
-              >
-                <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                  {comparisonData.sharedArtists.map((artist: any, index: number) => (
-                    <ArtistCard key={index} artist={artist} index={index} />
-                  ))}
-                </ScrollView>
-              </View>
+          ) : error || !data ? (
+            <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 28 }}>
+              <Text style={{ color: Colors.textPrimary, fontSize: 18, fontWeight: '800', marginBottom: 8 }}>Couldn&apos;t compare taste</Text>
+              <Text style={{ color: Colors.textMuted, fontSize: 13, textAlign: 'center', marginBottom: 18 }}>{error || 'Try again in a moment.'}</Text>
+              <Pressable onPress={() => router.back()} style={{ backgroundColor: Colors.orange, borderRadius: 18, paddingHorizontal: 18, paddingVertical: 11 }}>
+                <Text style={{ color: Colors.white, fontSize: 14, fontWeight: '800' }}>Go back</Text>
+              </Pressable>
             </View>
-
-            {/* Your Unique Artists */}
-            <View style={{ paddingHorizontal: 20, marginBottom: 40 }}>
-              <SectionHeader 
-                title="Artists Only You Listen To" 
-                subtitle="Your unique taste"
-              />
-              
-              <View
-                style={{
-                  backgroundColor: 'rgba(255, 255, 255, 0.06)',
-                  borderRadius: 24,
-                  padding: 20,
-                  borderWidth: 1,
-                  borderColor: 'rgba(255, 255, 255, 0.1)',
-                }}
-              >
-                <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                  {comparisonData.yourUniqueArtists.map((artist: any, index: number) => (
-                    <ArtistCard key={index} artist={artist} index={index} />
-                  ))}
-                </ScrollView>
-              </View>
-            </View>
-
-            {/* Their Unique Artists */}
-            <View style={{ paddingHorizontal: 20, marginBottom: 40 }}>
-              <SectionHeader 
-                title={`Artists Only ${comparisonData.friendName} Listens To`}
-                subtitle="Their unique taste"
-              />
-              
-              <View
-                style={{
-                  backgroundColor: 'rgba(255, 255, 255, 0.06)',
-                  borderRadius: 24,
-                  padding: 20,
-                  borderWidth: 1,
-                  borderColor: 'rgba(255, 255, 255, 0.1)',
-                }}
-              >
-                <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                  {comparisonData.theirUniqueArtists.map((artist: any, index: number) => (
-                    <ArtistCard key={index} artist={artist} index={index} />
-                  ))}
-                </ScrollView>
-              </View>
-            </View>
-
-            {/* Discover Together */}
-            <View style={{ paddingHorizontal: 20 }}>
-              <View
-                style={{
-                  backgroundColor: 'rgba(255, 147, 51, 0.08)',
-                  borderRadius: 24,
-                  padding: 24,
-                  alignItems: 'center',
-                  borderWidth: 1,
-                  borderColor: 'rgba(255, 147, 51, 0.2)',
-                }}
-              >
-                <IconSymbol name="music.note" size={32} color={Colors.orange} />
-                <Text style={{ 
-                  color: Colors.textPrimary, 
-                  fontSize: 18, 
-                  fontWeight: '700',
-                  marginTop: 12,
-                  marginBottom: 8,
-                  textAlign: 'center'
-                }}>
-                  Discover Together
-                </Text>
-                <Text style={{ 
-                  color: 'rgba(255, 255, 255, 0.7)', 
-                  fontSize: 14,
-                  textAlign: 'center',
-                  lineHeight: 20,
-                  marginBottom: 16
-                }}>
-                  Based on your shared taste, we think you'd both love exploring ambient electronic and indie R&B together.
-                </Text>
-                
-                <Pressable
-                  style={{
-                    backgroundColor: Colors.orange,
-                    paddingHorizontal: 24,
-                    paddingVertical: 12,
-                    borderRadius: 20,
-                  }}
-                >
-                  <Text style={{ color: Colors.white, fontSize: 16, fontWeight: '600' }}>
-                    Create Shared Playlist
+          ) : (
+            <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 100 }} showsVerticalScrollIndicator={false}>
+              <FadeIn>
+                <View style={{ alignItems: 'center', paddingHorizontal: 20, marginBottom: 34 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 18 }}>
+                    <Image source={{ uri: avatarURL(data.you.avatar_id) }} style={{ width: 64, height: 64, borderRadius: 32, borderWidth: 2.5, borderColor: scoreColor }} />
+                    <Text style={{ color: Colors.textPrimary, fontSize: 22, fontWeight: '900', marginHorizontal: 15 }}>vs</Text>
+                    <Image source={{ uri: avatarURL(data.them.avatar_id) }} style={{ width: 64, height: 64, borderRadius: 32, borderWidth: 2.5, borderColor: scoreColor }} />
+                  </View>
+                  <Text style={{ color: Colors.textPrimary, fontSize: 25, fontWeight: '900', textAlign: 'center', marginBottom: 10 }}>
+                    {data.you.username} + {data.them.username}
                   </Text>
-                </Pressable>
+                  <View style={{ backgroundColor: scoreColor, paddingHorizontal: 18, paddingVertical: 9, borderRadius: 22 }}>
+                    <Text style={{ color: Colors.white, fontSize: 17, fontWeight: '900' }}>{data.score}% compatible</Text>
+                  </View>
+                </View>
+              </FadeIn>
+
+              <ArtistSection
+                title="Shared Artists"
+                subtitle="Artists sitting in both rotations"
+                artists={data.sharedArtists}
+                color={Colors.orange}
+                empty="No shared top artists yet. Your overlap will improve as listening history grows."
+              />
+
+              {data.sharedTracks.length > 0 ? (
+                <View style={{ paddingHorizontal: 20, marginBottom: 34 }}>
+                  <SectionHeader title="Shared Tracks" subtitle="Songs you both keep close" color={Colors.orange} />
+                  <View style={{ backgroundColor: 'rgba(255,255,255,0.05)', borderRadius: 20, paddingHorizontal: 16, paddingVertical: 6, borderWidth: 1, borderColor: 'rgba(255,255,255,0.09)' }}>
+                    {data.sharedTracks.slice(0, 3).map((track, index) => <TrackRow key={`${track.name}-${track.artist}-${index}`} track={track} index={index} />)}
+                  </View>
+                </View>
+              ) : null}
+
+              <ArtistSection
+                title="Only You"
+                subtitle="Your side of the aux cable"
+                artists={data.yourUniqueArtists}
+                empty="No unique artists found yet."
+              />
+
+              <ArtistSection
+                title={`Only ${data.them.username}`}
+                subtitle="Their side of the aux cable"
+                artists={data.theirUniqueArtists}
+                empty="No unique artists found yet."
+              />
+
+              <View style={{ paddingHorizontal: 20 }}>
+                <View style={{ backgroundColor: 'rgba(232,100,10,0.08)', borderRadius: 20, padding: 22, alignItems: 'center', borderWidth: 1, borderColor: 'rgba(232,100,10,0.22)' }}>
+                  <IconSymbol name="music.note" size={30} color={Colors.orange} />
+                  <Text style={{ color: Colors.textPrimary, fontSize: 18, fontWeight: '900', marginTop: 12, marginBottom: 8, textAlign: 'center' }}>
+                    Discover Together
+                  </Text>
+                  <Text style={{ color: Colors.textSecondary, fontSize: 14, textAlign: 'center', lineHeight: 20 }}>
+                    {data.insight}
+                  </Text>
+                </View>
               </View>
-            </View>
-          </ScrollView>
+            </ScrollView>
+          )}
         </LinearGradient>
       </ImageBackground>
     </View>

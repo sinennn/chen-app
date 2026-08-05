@@ -211,7 +211,7 @@ export default function NotificationsScreen() {
               <ActivityIndicator color={Colors.orange} size="small" />
             ) : (
               <Text style={{ color: unreadCount > 0 ? Colors.orange : Colors.textMuted, fontSize: 12, fontWeight: '700' }}>
-                i've read all
+                i&apos;ve read all
               </Text>
             )}
           </Pressable>

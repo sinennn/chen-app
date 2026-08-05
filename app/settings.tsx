@@ -334,7 +334,7 @@ export default function SettingsScreen() {
       return;
     }
 
-    const inviteURL = Linking.createURL('/signup', {
+    const inviteURL = Linking.createURL('/(auth)/login', {
       queryParams: {
         referral_code: status.referral_code,
         perk_key: perkKey,
@@ -364,7 +364,7 @@ export default function SettingsScreen() {
   };
 
   const handleTerms = () => {
-    Alert.alert('Terms of Service', 'Terms of Service will open in browser soon!');
+    router.push('/terms');
   };
 
   const handlePrivacyPolicy = () => {

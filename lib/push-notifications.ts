@@ -1,16 +1,19 @@
 import Constants from 'expo-constants';
 import * as Device from 'expo-device';
 import * as Notifications from 'expo-notifications';
+//@ts-ignore
 import { Platform } from 'react-native';
 
-import AsyncStorage from './storage';
 import { api } from './api';
+import AsyncStorage from './storage';
 
 const LAST_PUSH_TOKEN_KEY = 'chen_last_push_token';
 
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
     shouldShowAlert: true,
+    shouldShowBanner: true,
+    shouldShowList: true,
     shouldPlaySound: false,
     shouldSetBadge: false,
   }),
