@@ -3,7 +3,6 @@ package supabase
 import (
 	"fmt"
 	"os"
-
 	"github.com/supabase-community/supabase-go"
 )
 

@@ -19,6 +19,11 @@ import {
 import { Colors } from "@/constants/theme";
 import { api } from "@/lib/api";
 import { completeReferralOnboarding } from "@/lib/referrals";
+import {
+  clearPendingSpotifyConnect,
+  SPOTIFY_REDIRECT_URI,
+  storePendingSpotifyConnect,
+} from "@/lib/spotifyAuth";
 import { supabase } from "@/lib/supabase";
 
 WebBrowser.maybeCompleteAuthSession();
@@ -49,16 +54,11 @@ export default function MusicServicesScreen() {
     typeof username === "string" ? username.trim().toLowerCase() : "";
   const normalizedAvatarSeed = typeof avatarSeed === "string" ? avatarSeed : "";
 
-  const redirectUri = AuthSession.makeRedirectUri({
-    scheme: "com.quinnn.chen",
-    path: "spotify-callback",
-  });
-
   const [request, response, promptAsync] = AuthSession.useAuthRequest(
     {
       clientId: SPOTIFY_CLIENT_ID,
       scopes: SCOPES.split(" "),
-      redirectUri,
+      redirectUri: SPOTIFY_REDIRECT_URI,
       responseType: AuthSession.ResponseType.Code,
       usePKCE: false,
     },
@@ -107,11 +107,12 @@ export default function MusicServicesScreen() {
       // Token exchange happens server-side — the client secret never leaves the backend.
       await api.spotify.exchangeCode(
         code,
-        redirectUri,
+        SPOTIFY_REDIRECT_URI,
         normalizedUsername || undefined,
         normalizedAvatarSeed || undefined,
       );
 
+      await clearPendingSpotifyConnect();
       await finalizeOnboarding();
     } catch (error) {
       console.error("Token exchange error:", error);
@@ -130,6 +131,10 @@ export default function MusicServicesScreen() {
       return;
     }
     setLoading(true);
+    await storePendingSpotifyConnect({
+      username: normalizedUsername || undefined,
+      avatarSeed: normalizedAvatarSeed || undefined,
+    });
     await promptAsync();
   };
 
